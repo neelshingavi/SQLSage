@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sqlsage-env"
+version = "0.1.0"
+description = "RL environment for SQL query optimization via plan reading"
+requires-python = ">=3.11"
+dependencies = [
+  "openenv-core>=0.2.0",
+  "fastapi",
+  "uvicorn",
+  "psycopg2-binary",
+  "pydantic",
+]
+
+[project.scripts]
+server = "server.app:main"
+
+[tool.setuptools]
+packages = ["sqlsage", "sqlsage.tasks", "sqlsage.training", "server"]

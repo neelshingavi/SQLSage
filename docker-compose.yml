@@ -1,0 +1,21 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: sqlsage-pg
+    environment:
+      POSTGRES_PASSWORD: sqlsage
+      POSTGRES_DB: sqlsage
+    ports:
+      - "5432:5432"
+    volumes:
+      - sqlsage_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sqlsage"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+volumes:
+  sqlsage_pg_data:
