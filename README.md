@@ -1,3 +1,13 @@
+---
+title: Sqlsage Env
+emoji: 🐠
+colorFrom: blue
+colorTo: blue
+sdk: docker
+pinned: false
+license: mit
+---
+
 # SQLSage Environment
 
 SQLSage is an OpenEnv-compatible RL environment for SQL query optimization via PostgreSQL execution-plan reading.
