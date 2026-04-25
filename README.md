@@ -31,6 +31,23 @@ Start DB:
 docker compose up -d
 ```
 
+### Person 1 — hours 8–14 (reference §8)
+
+After TPC-H SF=1 is loaded, optionally drop helper indexes so the curriculum matches the reference (more Seq Scan headroom):
+
+```bash
+psql "host=127.0.0.1 port=5433 user=postgres dbname=sqlsage password=sqlsage" -f sql/scripts/drop_curriculum_indexes.sql
+```
+
+- **Level 2 tasks** are `Q3`, `Q5`, `Q10`, `Q12` style queries in `sqlsage/tasks/level2.py`. Train or stress **Level 2 only** with `SQLSageEnv(tasks=sqlsage.tasks.tasks_for_levels(2))` or `--levels 2` below.
+- **Stress run** (sequential `reset` / optional identity `step`, no GRPO):
+
+```bash
+POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5433 python scripts/stress_env.py --episodes 50 --levels 2 --identity-step
+```
+
+OpenEnv HTTP uses a **single shared DB session**; the bridge serializes `reset` / `step` / `state` with a lock so multi-threaded Uvicorn does not interleave psycopg2 calls.
+
 ## Endpoints (Meta OpenEnv HTTP API)
 
 - `GET /health`
@@ -73,3 +90,7 @@ Integration tests use `POSTGRES_*` (default host `127.0.0.1`, port `5433`).
 ```bash
 openenv validate
 ```
+
+## Training (Person 3)
+
+Colab GRPO checklist, wandb rollout script, Hub upload, and baseline table: **`docs/PERSON3_PHASE8_MANUAL.md`**. Colab skeleton: **`notebooks/sqlsage_grpo_colab.ipynb`**. Quick smoke: `pip install -e '.[training]'` then `python scripts/rollout_wandb.py --episodes 5`.

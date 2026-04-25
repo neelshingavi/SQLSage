@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import asdict
 from typing import Any, Optional
 
@@ -21,6 +22,8 @@ class SQLSageOpenEnvironment(Environment[SQLSageStepAction, SQLSageServerObserva
     def __init__(self, inner: SQLSageEnv | None = None) -> None:
         super().__init__(transform=None, rubric=None)
         self._inner = inner or SQLSageEnv()
+        # Uvicorn may call reset/step/state from different threads; psycopg2 is not thread-safe.
+        self._lock = threading.RLock()
 
     def get_metadata(self) -> EnvironmentMetadata:
         return EnvironmentMetadata(
@@ -36,7 +39,8 @@ class SQLSageOpenEnvironment(Environment[SQLSageStepAction, SQLSageServerObserva
         **kwargs: Any,
     ) -> SQLSageServerObservation:
         self._reset_rubric()
-        core_obs = self._inner.reset(seed=seed)
+        with self._lock:
+            core_obs = self._inner.reset(seed=seed)
         return self._to_server_obs(core_obs, reward=None, done=False, info={})
 
     def step(
@@ -45,13 +49,15 @@ class SQLSageOpenEnvironment(Environment[SQLSageStepAction, SQLSageServerObserva
         timeout_s: Optional[float] = None,
         **kwargs: Any,
     ) -> SQLSageServerObservation:
-        core_obs, reward, done, info = self._inner.step(action.action, action.rewritten_query)
+        with self._lock:
+            core_obs, reward, done, info = self._inner.step(action.action, action.rewritten_query)
         return self._to_server_obs(core_obs, reward=reward, done=done, info=info)
 
     @property
     def state(self) -> State:
-        core = self._inner.state()
-        return State(episode_id=None, step_count=core.step_count)
+        with self._lock:
+            core = self._inner.state()
+            return State(episode_id=None, step_count=core.step_count)
 
     def close(self) -> None:
         """HTTPEnvServer calls close() after each HTTP request; keep the DB handle for singleton use."""
@@ -59,7 +65,8 @@ class SQLSageOpenEnvironment(Environment[SQLSageStepAction, SQLSageServerObserva
 
     def shutdown(self) -> None:
         """Release the PostgreSQL connection (process shutdown or tests)."""
-        self._inner.close()
+        with self._lock:
+            self._inner.close()
 
     @staticmethod
     def _to_server_obs(
