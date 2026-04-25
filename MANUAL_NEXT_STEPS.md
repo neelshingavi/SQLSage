@@ -17,13 +17,13 @@ Run these steps manually on your machine (no training is auto-run here).
 ## 2) PostgreSQL setup
 
 Option A (single command):
-- `docker run --name sqlsage-pg -e POSTGRES_PASSWORD=sqlsage -e POSTGRES_DB=sqlsage -p 5432:5432 -d postgres:16`
+- `docker run --name sqlsage-pg -e POSTGRES_PASSWORD=sqlsage -e POSTGRES_DB=sqlsage -p 5433:5432 -d postgres:16`
 
 Option B (repo helper):
 - `docker compose up -d`
 
 Then verify:
-- `python scripts/check_db_connection.py`
+- `POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5433 python scripts/check_db_connection.py`
 
 ## 3) Load TPC-H data
 

@@ -114,10 +114,10 @@ FROM (
         n_name AS nation,
         EXTRACT(YEAR FROM o_orderdate) AS o_year,
         l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity AS amount
-    FROM part
-    JOIN partsupp ON p_partkey = ps_partkey
-    JOIN supplier ON s_suppkey = ps_suppkey AND s_suppkey = l_suppkey
-    JOIN lineitem ON l_partkey = p_partkey
+    FROM lineitem
+    JOIN part ON p_partkey = l_partkey
+    JOIN supplier ON s_suppkey = l_suppkey
+    JOIN partsupp ON ps_partkey = l_partkey AND ps_suppkey = l_suppkey
     JOIN orders ON o_orderkey = l_orderkey
     JOIN nation ON s_nationkey = n_nationkey
     WHERE p_name LIKE '%green%'

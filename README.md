@@ -12,6 +12,25 @@ license: mit
 
 SQLSage is an OpenEnv-compatible RL environment for SQL query optimization via PostgreSQL execution-plan reading.
 
+## Database Mode
+
+This project is configured for **local PostgreSQL via Docker**.
+
+Use:
+
+- `POSTGRES_HOST=127.0.0.1`
+- `POSTGRES_PORT=5433`
+- `POSTGRES_USER=postgres`
+- `POSTGRES_PASSWORD=sqlsage`
+- `POSTGRES_DB=sqlsage`
+- `SQLSAGE_TIMEOUT_MS=120000` (SF=1 TPC-H can exceed 5s)
+
+Start DB:
+
+```bash
+docker compose up -d
+```
+
 ## Endpoints
 
 - `GET /health`
@@ -22,7 +41,7 @@ SQLSage is an OpenEnv-compatible RL environment for SQL query optimization via P
 ## Local Run
 
 ```bash
-uvicorn sqlsage.app:app --reload --port 8000
+POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5433 uvicorn sqlsage.app:app --reload --port 8000
 ```
 
 ## Validation

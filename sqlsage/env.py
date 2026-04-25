@@ -59,7 +59,8 @@ class SQLSageEnv:
         resolved_user = db_user or os.getenv("POSTGRES_USER", "postgres")
         resolved_password = db_password or os.getenv("POSTGRES_PASSWORD", "sqlsage")
         resolved_db = db_name or os.getenv("POSTGRES_DB", "sqlsage")
-        resolved_timeout_ms = int(timeout_ms or os.getenv("SQLSAGE_TIMEOUT_MS", "5000"))
+        # SF=1 TPC-H queries can exceed 5s on modest hardware; override via SQLSAGE_TIMEOUT_MS.
+        resolved_timeout_ms = int(timeout_ms or os.getenv("SQLSAGE_TIMEOUT_MS", "120000"))
 
         self.conn: connection = psycopg2.connect(
             host=resolved_host,
