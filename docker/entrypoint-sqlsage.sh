@@ -12,4 +12,6 @@ export POSTGRES_HOST="${POSTGRES_HOST:-127.0.0.1}"
 export POSTGRES_PORT="${POSTGRES_PORT:-5432}"
 
 cd /app
-exec uvicorn sqlsage.app:app --host 0.0.0.0 --port "${PORT:-8000}"
+# Hugging Face Spaces set PORT (default 7860). Listening on 8000 when PORT is unset often causes
+# external HTTPS to hang/time out while logs still show a healthy Uvicorn process.
+exec uvicorn sqlsage.app:app --host 0.0.0.0 --port "${PORT:-7860}"
