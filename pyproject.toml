@@ -15,6 +15,9 @@ dependencies = [
   "pydantic",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
 [project.scripts]
 server = "server.app:main"
 

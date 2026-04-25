@@ -125,7 +125,12 @@ ORDER BY table_name, column_name;
         base_query = self.current_task.query
 
         baseline_ms, baseline_hash, baseline_rows = self.execute_and_measure(base_query)
-        baseline_plan = get_explain_dict(self.conn, base_query)
+        try:
+            baseline_plan = get_explain_dict(self.conn, base_query, timeout_ms=self.timeout_ms)
+        except TimeoutError as exc:
+            raise RuntimeError(
+                "EXPLAIN ANALYZE timed out during reset; increase SQLSAGE_TIMEOUT_MS or reduce load"
+            ) from exc
         schema_context = self._fetch_schema_context()
 
         self.state_obj = Observation(
@@ -173,7 +178,10 @@ ORDER BY table_name, column_name;
             return self.state_obj, -20.0, False, {"error": "result_changed"}
 
         # 4. Get new EXPLAIN plan
-        new_plan = get_explain_dict(self.conn, rewritten_query)
+        try:
+            new_plan = get_explain_dict(self.conn, rewritten_query, timeout_ms=self.timeout_ms)
+        except TimeoutError:
+            return self.state_obj, -12.0, False, {"error": "explain_timeout"}
 
         # 5. Compute reward
         reward = compute_reward(self.state_obj.execution_ms, new_ms, new_plan, self.state_obj.explain_plan)

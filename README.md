@@ -31,18 +31,42 @@ Start DB:
 docker compose up -d
 ```
 
-## Endpoints
+## Endpoints (Meta OpenEnv HTTP API)
 
 - `GET /health`
-- `POST /reset`
-- `POST /step`
+- `POST /reset` — body: `{}` or `{"seed": 42}` (optional `episode_id`)
+- `POST /step` — body wraps the SQL action under `action` (OpenEnv `StepRequest`):
+
+```json
+{
+  "action": {
+    "action": "push_filter",
+    "rewritten_query": "SELECT 1"
+  }
+}
+```
+
 - `GET /state`
+- `GET /schema`, `GET /metadata`, WebSocket `/ws` for session-based `reset` / `step`
 
 ## Local Run
 
 ```bash
 POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5433 uvicorn sqlsage.app:app --reload --port 8000
 ```
+
+## Single-container image (Postgres + API)
+
+The root `Dockerfile` starts PostgreSQL then `uvicorn` (for Hugging Face Spaces). Load TPC-H into the data directory separately or bake init SQL if needed.
+
+## Tests
+
+```bash
+pip install -e '.[dev]'
+pytest tests/ -v
+```
+
+Integration tests use `POSTGRES_*` (default host `127.0.0.1`, port `5433`).
 
 ## Validation
 

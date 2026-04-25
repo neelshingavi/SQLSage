@@ -21,7 +21,12 @@ def make_prompt(observation: dict[str, Any]) -> str:
     )
 
 
-def build_records(conn: Any, queries: list[str], schema_summary: str) -> list[dict[str, Any]]:
+def build_records(
+    conn: Any,
+    queries: list[str],
+    schema_summary: str,
+    explain_timeout_ms: int = 120_000,
+) -> list[dict[str, Any]]:
     """
     Build plain Python records for training.
     The caller can convert these records into a Hugging Face Dataset.
@@ -31,7 +36,7 @@ def build_records(conn: Any, queries: list[str], schema_summary: str) -> list[di
         execution_ms, result_hash, _rows = execute_read_only(conn, query)
         obs = {
             "original_query": query,
-            "explain_plan": get_explain_dict(conn, query),
+            "explain_plan": get_explain_dict(conn, query, timeout_ms=explain_timeout_ms),
             "execution_ms": execution_ms,
             "result_hash": result_hash,
             "schema_context": schema_summary,

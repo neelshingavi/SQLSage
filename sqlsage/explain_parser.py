@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import psycopg2.extensions
+from psycopg2 import errors
 
 
 def count_node_type(plan: dict[str, Any], node_type: str) -> int:
@@ -41,10 +42,26 @@ def extract_key_fields(plan: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def get_explain_dict(conn: psycopg2.extensions.connection, query: str) -> dict[str, Any]:
+def get_explain_dict(
+    conn: psycopg2.extensions.connection,
+    query: str,
+    timeout_ms: int = 5000,
+) -> dict[str, Any]:
+    """
+    Run EXPLAIN (ANALYZE, FORMAT JSON) with a statement timeout.
+
+    Uses a short read-only transaction so a long EXPLAIN cannot hang the server.
+    Raises TimeoutError if ``statement_timeout`` fires (same semantics as reference).
+    """
     with conn.cursor() as cur:
-        cur.execute(f"EXPLAIN (ANALYZE, FORMAT JSON) {query}")
-        raw = cur.fetchone()[0]
-    # FORMAT JSON returns a one-element list where Plan is inside index 0.
+        cur.execute("BEGIN READ ONLY")
+        try:
+            cur.execute("SET LOCAL statement_timeout = %s", (timeout_ms,))
+            cur.execute(f"EXPLAIN (ANALYZE, FORMAT JSON) {query}")
+            raw = cur.fetchone()[0]
+        except errors.QueryCanceled as exc:
+            raise TimeoutError("explain_query_timeout") from exc
+        finally:
+            cur.execute("ROLLBACK")
     plan = raw[0]["Plan"]
     return extract_key_fields(plan)

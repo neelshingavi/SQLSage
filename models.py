@@ -1,24 +1,11 @@
-"""OpenEnv client models for SQLSage."""
+"""OpenEnv client models for SQLSage (aliases for shared server types)."""
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from sqlsage.openenv_types import SQLSageServerObservation, SQLSageStepAction
 
+# Backward-compatible names for client code
+SQLSageAction = SQLSageStepAction
+SQLSageObservation = SQLSageServerObservation
 
-class SQLSageAction(BaseModel):
-    action: str
-    rewritten_query: str
-
-
-class SQLSageObservation(BaseModel):
-    original_query: str = ""
-    explain_plan: dict = {}
-    execution_ms: float = 0.0
-    result_hash: str = ""
-    result_row_count: int = 0
-    schema_context: str = ""
-    previous_rewrites: list[str] = []
-    step_count: int = 0
-    task_level: int = 1
-    done: bool = False
-    reward: float | None = None
+__all__ = ["SQLSageAction", "SQLSageObservation", "SQLSageStepAction", "SQLSageServerObservation"]

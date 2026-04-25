@@ -1,61 +1,36 @@
-"""FastAPI wrapper for SQLSage environment."""
+"""FastAPI application for SQLSage (Meta OpenEnv HTTP/WebSocket API)."""
 
 from __future__ import annotations
 
-from dataclasses import asdict
-from typing import Any
+import atexit
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from openenv.core.env_server.http_server import create_fastapi_app
 
-from .env import SQLSageEnv
+from .openenv_bridge import SQLSageOpenEnvironment
+from .openenv_types import SQLSageServerObservation, SQLSageStepAction
 
-app = FastAPI(title="SQLSage Environment", version="0.1.0")
-env: SQLSageEnv | None = None
+_singleton: SQLSageOpenEnvironment | None = None
 
 
-def get_env() -> SQLSageEnv:
-    global env
-    if env is None:
-        try:
-            env = SQLSageEnv()
-        except Exception as exc:  # pragma: no cover
-            raise HTTPException(status_code=503, detail=f"database_unavailable: {exc}") from exc
-    return env
+def _sqlsage_factory() -> SQLSageOpenEnvironment:
+    """Single long-lived env instance (HTTP handlers call close() after each request)."""
+    global _singleton
+    if _singleton is None:
+        _singleton = SQLSageOpenEnvironment()
+    return _singleton
 
 
-class StepRequest(BaseModel):
-    action: str = Field(..., description="Action type, e.g. push_filter")
-    rewritten_query: str = Field(..., description="Rewritten SQL text")
+def _shutdown_sqlsage() -> None:
+    global _singleton
+    if _singleton is not None:
+        _singleton.shutdown()
+        _singleton = None
 
 
-@app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+atexit.register(_shutdown_sqlsage)
 
-
-@app.post("/reset")
-def reset(seed: int | None = None) -> dict[str, Any]:
-    state = get_env().reset(seed=seed)
-    return {"observation": asdict(state)}
-
-
-@app.post("/step")
-def step(payload: StepRequest) -> dict[str, Any]:
-    try:
-        state, reward, done, info = get_env().step(payload.action, payload.rewritten_query)
-    except HTTPException:
-        raise
-    except RuntimeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"observation": asdict(state), "reward": reward, "done": done, "info": info}
-
-
-@app.get("/state")
-def state() -> dict[str, Any]:
-    try:
-        return {"observation": asdict(get_env().state())}
-    except HTTPException:
-        raise
-    except RuntimeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+app = create_fastapi_app(
+    _sqlsage_factory,
+    SQLSageStepAction,
+    SQLSageServerObservation,
+)
