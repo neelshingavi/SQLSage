@@ -17,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+plots = ["matplotlib>=3.8", "numpy>=1.26", "wandb>=0.16"]
 
 [project.scripts]
 server = "server.app:main"
