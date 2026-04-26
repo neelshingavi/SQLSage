@@ -10,9 +10,10 @@ pydantic>=2.0
 openenv-core>=0.2.0
 requests>=2.32.0
 
-# --- PyTorch (CUDA). Must stay <2.11 and match unsloth 2026.4.x. ---
-torch==2.5.1+cu124
-torchvision==0.20.1+cu124
+# --- PyTorch (CUDA). Must stay <2.11 and match unsloth 2026.4.x.
+# xformers==0.0.28.post2 requires torch==2.5.0 exactly (2.5.1 conflicts).
+torch==2.5.0+cu124
+torchvision==0.20.0+cu124
 
 # --- Unsloth + GRPO (unsloth 2026.4.8 allows trl<=0.24, datasets<4.4) ---
 unsloth==2026.4.8
