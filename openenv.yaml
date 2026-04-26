@@ -1,0 +1,10 @@
+name: sqlsage-env
+version: 0.1.0
+description: RL environment for training LLMs to optimize SQL queries via plan reading
+author: your-hf-username
+python_version: "3.11"
+entry_point: sqlsage.app:app
+environment:
+  type: gym
+  observation_space: dict
+  action_space: discrete
