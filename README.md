@@ -1,13 +1,3 @@
----
-title: Sqlsage Env
-emoji: 🐠
-colorFrom: blue
-colorTo: blue
-sdk: docker
-pinned: false
-license: mit
----
-
 <div align="center">
   <h1>SQLSage</h1>
   <p><strong>Reinforcement learning environment for SQL query optimization on PostgreSQL (TPC-H)</strong></p>
@@ -153,6 +143,12 @@ To include animated learning curves, export your W&B panel as GIF and embed in `
 ![Learning Curves](docs/assets/learning-curves.gif)
 ```
 
+### Latest Curves (PNG)
+
+![Reward Curve](plots/reward_curve.png)
+![Penalty Dashboard](plots/penalty_dashboard.png)
+![Plan Improvement](plots/plan_improvement.png)
+
 ## Current Results Snapshot
 
 From `results/baseline_vs_trained.md`:
@@ -161,6 +157,18 @@ From `results/baseline_vs_trained.md`:
 - Mean final query latency (ms): `0.6 -> 0.5`
 - Syntax penalties/episode: `0.00`
 - Result-changed penalties/episode: `0.00`
+
+### Learning Progress Table (Real Metrics)
+
+| Signal | Baseline | Trained | Percent Change |
+| --- | ---: | ---: | ---: |
+| Mean episode return | 2.32 | 5.10 | +119.83% |
+| Mean final query latency (ms) | 0.60 | 0.50 | -16.67% |
+| Mean speedup ratio | 0.294 | 0.284 | -3.40% |
+| Syntax penalties / episode | 0.00 | 0.00 | 0.00% |
+| Result-changed penalties / episode | 0.00 | 0.00 | 0.00% |
+
+Note: this table is computed from the currently committed baseline-vs-trained report. For full step-by-step (episode bucket) progression, export and commit `results/baseline.jsonl` and `results/trained.jsonl`.
 
 W&B evidence:
 
