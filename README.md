@@ -96,7 +96,8 @@ openenv validate
 
 ### Colab + GRPO flow
 
-- Colab notebook: `notebooks/sqlsage_grpo_colab.ipynb`
+- Colab notebook: [Open in Google Colab](https://colab.research.google.com/github/neelshingavi/SQLSage/blob/main/notebooks/sqlsage_grpo_colab.ipynb)
+- Repo notebook path: `notebooks/sqlsage_grpo_colab.ipynb`
 - Local helper: `scripts/train_grpo_with_env.py`
 - Space training entrypoint: `train.py`
 
@@ -178,7 +179,7 @@ W&B evidence:
 ## Submission Links
 
 - Hugging Face Space: [Adity00/sqlsage-env](https://huggingface.co/spaces/Adity00/sqlsage-env)
-- Colab notebook: `notebooks/sqlsage_grpo_colab.ipynb`
+- Colab notebook: [sqlsage_grpo_colab.ipynb](https://colab.research.google.com/github/neelshingavi/SQLSage/blob/main/notebooks/sqlsage_grpo_colab.ipynb)
 - GitHub repository: [neelshingavi/SQLSage](https://github.com/neelshingavi/SQLSage)
 - Detailed blog post: `BLOG.md`
 - Demo video/blog URL for submission: `TODO`
