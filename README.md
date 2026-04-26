@@ -98,3 +98,33 @@ openenv validate
 Colab GRPO checklist, wandb rollout script, Hub upload, and baseline table: **`docs/PERSON3_PHASE8_MANUAL.md`**. Colab skeleton: **`notebooks/sqlsage_grpo_colab.ipynb`**. Quick smoke: `pip install -e '.[training]'` then `python scripts/rollout_wandb.py --episodes 5`.
 
 Phase 8 completion runbook (all roles): **`docs/PHASE8_CLOSEOUT_CHECKLIST.md`**.
+
+## Results (Phase 8 evidence)
+
+Current rollout comparison from `results/baseline.jsonl` vs `results/trained.jsonl`:
+
+| Metric | Baseline | After training |
+| --- | ---: | ---: |
+| Episodes | 50 | 50 |
+| Mean episode return (sum of step rewards) | 2.32 | 5.10 |
+| Mean final query latency (ms) | 0.6 | 0.5 |
+| Mean speedup ratio (0–1) | 0.294 | 0.284 |
+| Syntax penalties / episode | 0.00 | 0.00 |
+| Result-changed penalties / episode | 0.00 | 0.00 |
+
+Notes:
+
+- These numbers are generated via `scripts/rollout_wandb.py` + `scripts/compare_rollouts.py`.
+- The current "trained" sample used the repo placeholder policy (`noisy_identity`) for pipeline validation; replace with true trained-policy rollouts before final judging submission.
+
+W&B run links used for this export:
+
+- Baseline run: [rollout-http / w9lorr6y](https://wandb.ai/shingavineel-bharati-vidyapeeth/sqlsage-grpo/runs/w9lorr6y)
+- Comparison run: [rollout-http / 1d4w4r5y](https://wandb.ai/shingavineel-bharati-vidyapeeth/sqlsage-grpo/runs/1d4w4r5y)
+
+## Submission Links
+
+- Hugging Face Space: [adity00/sqlsage-env](https://huggingface.co/spaces/Adity00/sqlsage-env)
+- Colab notebook (repo copy): `notebooks/sqlsage_grpo_colab.ipynb`
+- GitHub repository: [neelshingavi/SQLSage](https://github.com/neelshingavi/SQLSage)
+- Demo video/blog: **TODO (add final URL)**

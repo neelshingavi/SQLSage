@@ -9,3 +9,6 @@ dist/
 build/
 .env
 nohup.out
+wandb/
+plots/*.png
+results/*.jsonl
