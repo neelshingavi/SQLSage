@@ -1,35 +1,26 @@
-"""Pytest fixtures for SQLSage (optional live PostgreSQL)."""
+"""Shared pytest fixtures for PostgreSQL-backed tests."""
 
-from __future__ import annotations
-
-import os
-
+import psycopg2
 import pytest
-
-
-def _postgres_params() -> dict[str, object]:
-    return {
-        "host": os.getenv("POSTGRES_HOST", "127.0.0.1"),
-        "port": int(os.getenv("POSTGRES_PORT", "5433")),
-        "user": os.getenv("POSTGRES_USER", "postgres"),
-        "password": os.getenv("POSTGRES_PASSWORD", "sqlsage"),
-        "dbname": os.getenv("POSTGRES_DB", "sqlsage"),
-    }
 
 
 @pytest.fixture(scope="session")
 def postgres_conn():
-    """Live connection when DB is reachable; else skip."""
+    """Create and close a real PostgreSQL connection for tests."""
+    connection = psycopg2.connect(
+        host="localhost",
+        port=5432,
+        user="postgres",
+        password="sqlsage",
+        dbname="sqlsage",
+    )
     try:
-        import psycopg2
-    except ImportError as exc:  # pragma: no cover
-        pytest.skip(f"psycopg2 not installed: {exc}")
-
-    try:
-        conn = psycopg2.connect(**_postgres_params())
-    except Exception as exc:
-        pytest.skip(f"PostgreSQL not available for integration tests: {exc}")
-    try:
-        yield conn
+        yield connection
     finally:
-        conn.close()
+        connection.close()
+
+
+@pytest.fixture(scope="module")
+def conn(postgres_conn):
+    """Backward-compatible module-scoped alias fixture for parser tests."""
+    yield postgres_conn

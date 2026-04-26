@@ -1,20 +1,65 @@
-"""Main SQLSage environment implementation."""
+"""OpenEnv environment for SQL query optimization with PostgreSQL."""
 
-from __future__ import annotations
-
+import hashlib
+import json
 import os
-import random
-from dataclasses import asdict, dataclass, field
-from typing import Any
+import signal
+import time
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
 
 import psycopg2
-from psycopg2 import errors
-from psycopg2.extensions import connection
+import psycopg2.extras
+try:
+    from openenv import Environment
+except ImportError:  # pragma: no cover - compatibility with older openenv exports
+    class Environment:  # type: ignore[too-many-ancestors]
+        """Fallback base when openenv.Environment is unavailable."""
 
-from .anti_cheat import execute_read_only, validate_read_only_sql
-from .explain_parser import get_explain_dict
-from .reward import compute_reward
-from .tasks import ALL_TASKS, Task
+        pass
+
+from sqlsage.explain_parser import diagnose_bottleneck, get_explain_dict, get_result_hash
+from sqlsage.reward import compute_reward
+
+
+@dataclass
+class Observation:
+    """Serializable state returned to the policy at each step."""
+
+    original_query: str
+    explain_plan: dict
+    execution_ms: float
+    result_hash: str
+    schema_context: str
+    previous_rewrites: List[str] = field(default_factory=list)
+    previous_rewards: List[float] = field(default_factory=list)
+    step_count: int = 0
+    task_level: int = 1
+    bottleneck_diagnosis: str = "UNKNOWN"
+    suggested_actions: List[str] = field(default_factory=list)
+    cost_hotspot: str = ""
+    rows_scanned_ratio: float = 0.0
+    target_ms: float = 500.0
+
+    def to_dict(self) -> dict:
+        """Return all fields as a JSON-serializable dictionary."""
+        return {
+            "original_query": self.original_query,
+            "explain_plan": self.explain_plan,
+            "execution_ms": float(self.execution_ms),
+            "result_hash": self.result_hash,
+            "schema_context": self.schema_context,
+            "previous_rewrites": list(self.previous_rewrites),
+            "previous_rewards": [float(v) for v in self.previous_rewards],
+            "step_count": int(self.step_count),
+            "task_level": int(self.task_level),
+            "bottleneck_diagnosis": self.bottleneck_diagnosis,
+            "suggested_actions": list(self.suggested_actions),
+            "cost_hotspot": self.cost_hotspot,
+            "rows_scanned_ratio": float(self.rows_scanned_ratio),
+            "target_ms": float(self.target_ms),
+        }
+
 
 VALID_ACTIONS = {
     "rewrite_join",
@@ -26,181 +71,336 @@ VALID_ACTIONS = {
     "revert",
 }
 
+DDL_KEYWORDS = {
+    "CREATE",
+    "DROP",
+    "ALTER",
+    "TRUNCATE",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "GRANT",
+    "REVOKE",
+    "VACUUM",
+    "ANALYZE",
+}
 
-@dataclass
-class Observation:
-    original_query: str
-    explain_plan: dict[str, Any]
-    execution_ms: float
-    result_hash: str
-    result_row_count: int
-    schema_context: str
-    previous_rewrites: list[str] = field(default_factory=list)
-    step_count: int = 0
-    task_level: int = 1
+SCHEMA_SUMMARY = """
+TPC-H Schema:
+- lineitem(orderkey, partkey, suppkey, linenumber, quantity,
+           extendedprice, discount, tax, returnflag, linestatus,
+           shipdate, commitdate, receiptdate, shipinstruct,
+           shipmode, comment)  ~6M rows
+- orders(orderkey, custkey, orderstatus, totalprice, orderdate,
+         orderpriority, clerk, shippriority, comment)  ~1.5M rows
+- customer(custkey, name, address, nationkey, phone, acctbal,
+           mktsegment, comment)  ~150K rows
+- part(partkey, name, mfgr, brand, type, size, container,
+       retailprice, comment)  ~200K rows
+- supplier(suppkey, name, address, nationkey, phone, acctbal,
+           comment)  ~10K rows
+- partsupp(partkey, suppkey, availqty, supplycost, comment)  ~800K rows
+- nation(nationkey, name, regionkey, comment)  25 rows
+- region(regionkey, name, comment)  5 rows
+"""
+
+TABLE_SIZES = {
+    "lineitem": 6001215,
+    "orders": 1500000,
+    "customer": 150000,
+    "part": 200000,
+    "supplier": 10000,
+    "partsupp": 800000,
+    "nation": 25,
+    "region": 5,
+}
 
 
-class SQLSageEnv:
-    """Gym-like environment with reset(), step(), and state()."""
+class SQLSageEnv(Environment):
+    """OpenEnv-compatible environment for SQL query optimization."""
 
     def __init__(
         self,
-        db_host: str | None = None,
-        db_port: int | None = None,
-        db_user: str | None = None,
-        db_password: str | None = None,
-        db_name: str | None = None,
-        timeout_ms: int | None = None,
+        db_host: Optional[str] = None,
+        db_port: Optional[int] = None,
+        db_user: Optional[str] = None,
+        db_password: Optional[str] = None,
+        db_name: Optional[str] = None,
+        tasks: Optional[List[Any]] = None,
         max_steps: int = 5,
-        tasks: list[Task] | None = None,
-    ) -> None:
-        resolved_host = db_host or os.getenv("POSTGRES_HOST", "localhost")
-        resolved_port = int(db_port or os.getenv("POSTGRES_PORT", "5432"))
-        resolved_user = db_user or os.getenv("POSTGRES_USER", "postgres")
-        resolved_password = db_password or os.getenv("POSTGRES_PASSWORD", "sqlsage")
-        resolved_db = db_name or os.getenv("POSTGRES_DB", "sqlsage")
-        # SF=1 TPC-H queries can exceed 5s on modest hardware; override via SQLSAGE_TIMEOUT_MS.
-        resolved_timeout_ms = int(timeout_ms or os.getenv("SQLSAGE_TIMEOUT_MS", "120000"))
+        **_: Any,
+    ):
+        self._db_host = db_host
+        self._db_port = db_port
+        self._db_user = db_user
+        self._db_password = db_password
+        self._db_name = db_name
+        self.conn = None
+        self._state: Optional[Observation] = None
+        self.target_ms: float = 500.0
+        self.best_query: str = ""
+        self.best_ms: float = float("inf")
+        self.max_steps: int = int(max_steps)
+        self.timeout_ms: int = int(os.environ.get("SQLSAGE_TIMEOUT_MS", "120000"))
+        self._connect()
+        self._load_tasks()
+        if tasks:
+            self.all_tasks = list(tasks)
 
-        self.conn: connection = psycopg2.connect(
-            host=resolved_host,
-            port=resolved_port,
-            user=resolved_user,
-            password=resolved_password,
-            dbname=resolved_db,
+    def _connect(self):
+        """Connect to PostgreSQL. Retry 3 times with 2s delay."""
+        host = self._db_host or os.environ.get("PG_HOST") or os.environ.get("POSTGRES_HOST", "localhost")
+        port = int(self._db_port or os.environ.get("PG_PORT") or os.environ.get("POSTGRES_PORT", 5432))
+        user = self._db_user or os.environ.get("PG_USER") or os.environ.get("POSTGRES_USER", "postgres")
+        password = (
+            self._db_password or os.environ.get("PG_PASSWORD") or os.environ.get("POSTGRES_PASSWORD", "sqlsage")
         )
-        self.conn.autocommit = True
-        self.timeout_ms = resolved_timeout_ms
-        self.max_steps = max_steps
-        self.tasks = tasks or ALL_TASKS
-        self.state_obj: Observation | None = None
-        self.current_task: Task | None = None
-        self.best_rewrite: str | None = None
-        self.best_ms: float | None = None
+        dbname = self._db_name or os.environ.get("PG_DB") or os.environ.get("POSTGRES_DB", "sqlsage")
 
-    def close(self) -> None:
-        self.conn.close()
+        for attempt in range(3):
+            try:
+                self.conn = psycopg2.connect(
+                    host=host,
+                    port=port,
+                    user=user,
+                    password=password,
+                    dbname=dbname,
+                    connect_timeout=10,
+                )
+                self.conn.autocommit = False
+                return
+            except psycopg2.OperationalError as error:
+                if attempt == 2:
+                    raise RuntimeError(
+                        f"Cannot connect to PostgreSQL after 3 attempts: {error}"
+                    )
+                time.sleep(2)
 
-    def _fetch_schema_context(self) -> str:
-        query = """
-SELECT
-  c.relname AS table_name,
-  a.attname AS column_name,
-  t.typname AS data_type
-FROM pg_class c
-JOIN pg_attribute a ON a.attrelid = c.oid
-JOIN pg_type t ON a.atttypid = t.oid
-JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE c.relkind = 'r'
-  AND a.attnum > 0
-  AND NOT a.attisdropped
-  AND n.nspname = 'public'
-ORDER BY table_name, column_name;
-"""
-        with self.conn.cursor() as cur:
+    def _load_tasks(self):
+        """Load all task levels. Import here to avoid circular imports."""
+        from sqlsage.tasks.level1 import LEVEL1_TASKS
+        from sqlsage.tasks.level2 import LEVEL2_TASKS
+        from sqlsage.tasks.level3 import LEVEL3_TASKS
+
+        self.all_tasks = LEVEL1_TASKS + LEVEL2_TASKS + LEVEL3_TASKS
+
+    def close(self):
+        """Close PostgreSQL connection."""
+        if self.conn is not None:
+            self.conn.close()
+
+    def _get_task(self, level: int, seed: Optional[int] = None):
+        """Return a task dict for the given level."""
+        import random
+
+        tasks = [task for task in self.all_tasks if task.level == level]
+        if not tasks:
+            tasks = self.all_tasks
+        rng = random.Random(seed)
+        return rng.choice(tasks)
+
+    def validate_sql(self, query: str) -> bool:
+        """
+        Validate that query is safe and parseable.
+
+        Returns False if:
+        - query is empty or not a string
+        - query contains DDL keywords (case-insensitive)
+        - PostgreSQL cannot parse it (EXPLAIN fails)
+        """
+        if not query or not isinstance(query, str):
+            return False
+        query_upper = query.upper()
+
+        import re
+
+        for keyword in DDL_KEYWORDS:
+            if re.search(r"\b" + keyword + r"\b", query_upper):
+                return False
+        try:
+            cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(f"EXPLAIN {query}")
+            self.conn.rollback()
+            cur.close()
+            return True
+        except psycopg2.Error:
+            self.conn.rollback()
+            return False
+
+    def execute_and_measure(self, query: str, timeout_s: int = 5) -> Tuple[float, str, int]:
+        """
+        Execute query in READ ONLY transaction.
+
+        Returns (execution_ms, result_hash, row_count).
+        Raises TimeoutError if execution exceeds timeout_s seconds.
+        Raises psycopg2.Error on SQL error.
+        """
+        _ = signal.SIGALRM
+        try:
+            cur = self.conn.cursor()
+            cur.execute(f"SET statement_timeout = {timeout_s * 1000}")
+            cur.execute("BEGIN READ ONLY")
+
+            start = time.perf_counter()
             cur.execute(query)
             rows = cur.fetchall()
-        return "\n".join(f"{table}.{column}:{dtype}" for table, column, dtype in rows)
+            elapsed_ms = (time.perf_counter() - start) * 1000
 
-    def _validate_sql(self, query: str) -> bool:
-        if not validate_read_only_sql(query):
-            return False
-        try:
-            with self.conn.cursor() as cur:
-                cur.execute("EXPLAIN " + query)
-            return True
-        except Exception:
-            return False
+            self.conn.rollback()
+            cur.close()
 
-    def execute_and_measure(self, query: str) -> tuple[float, str, int]:
-        try:
-            return execute_read_only(self.conn, query, timeout_ms=self.timeout_ms)
-        except errors.QueryCanceled as exc:
-            raise TimeoutError("query_timeout") from exc
+            content = json.dumps(rows, sort_keys=True, default=str)
+            result_hash = hashlib.md5(content.encode()).hexdigest()
+            row_count = len(rows)
 
-    def reset(self, seed: int | None = None) -> Observation:
-        if seed is not None:
-            random.seed(seed)
-        self.current_task = random.choice(self.tasks)
-        base_query = self.current_task.query
+            return float(elapsed_ms), result_hash, int(row_count)
 
-        baseline_ms, baseline_hash, baseline_rows = self.execute_and_measure(base_query)
-        try:
-            baseline_plan = get_explain_dict(self.conn, base_query, timeout_ms=self.timeout_ms)
-        except TimeoutError as exc:
-            raise RuntimeError(
-                "EXPLAIN ANALYZE timed out during reset; increase SQLSAGE_TIMEOUT_MS or reduce load"
-            ) from exc
-        schema_context = self._fetch_schema_context()
+        except psycopg2.extensions.QueryCanceledError as error:
+            self.conn.rollback()
+            raise TimeoutError(f"Query exceeded {timeout_s}s timeout") from error
+        except psycopg2.Error:
+            self.conn.rollback()
+            raise
 
-        self.state_obj = Observation(
-            original_query=base_query,
-            explain_plan=baseline_plan,
-            execution_ms=baseline_ms,
-            result_hash=baseline_hash,
-            result_row_count=baseline_rows,
-            schema_context=schema_context,
-            previous_rewrites=[],
+    def _build_observation(self, query: str, level: int, target_ms: float) -> Observation:
+        """
+        Build a full Observation for a query.
+
+        Runs EXPLAIN ANALYZE and computes all derived fields.
+        """
+        plan = get_explain_dict(self.conn, query, timeout_ms=self.timeout_ms)
+        execution_ms, result_hash, _ = self.execute_and_measure(query)
+        diagnosis = diagnose_bottleneck(plan, TABLE_SIZES)
+
+        action_map = {
+            "SEQ_SCAN_SELECTIVE_FILTER": ["push_filter", "suggest_index", "add_cte"],
+            "NESTED_LOOP_HIGH_CARDINALITY": ["rewrite_join", "add_cte", "reorder_joins"],
+            "MISSING_INDEX_FILTER": ["suggest_index", "push_filter"],
+            "SUBQUERY_MATERIALIZABLE": ["add_cte", "push_filter"],
+            "MULTI_JOIN_NO_STATS": ["reorder_joins", "add_cte", "rewrite_join"],
+            "ALREADY_OPTIMAL": ["push_filter", "limit_early"],
+        }
+        suggested = action_map.get(diagnosis, ["push_filter"])
+
+        hcn = plan.get("highest_cost_node", {})
+        total_cost = float(plan.get("total_cost", 1) or 1)
+        hcn_cost = float(hcn.get("Total Cost", 0) or 0)
+        pct = (hcn_cost / total_cost * 100) if total_cost > 0 else 0
+        cost_hotspot = f"{hcn.get('Node Type', 'unknown')} ({pct:.0f}% of total cost)"
+
+        rows = float(plan.get("rows", 0) or 0)
+        largest_table = max(TABLE_SIZES.values())
+        rows_ratio = min(rows / largest_table, 1.0) if largest_table > 0 else 0.0
+
+        return Observation(
+            original_query=query,
+            explain_plan=plan,
+            execution_ms=float(execution_ms),
+            result_hash=result_hash,
+            schema_context=SCHEMA_SUMMARY,
             step_count=0,
-            task_level=self.current_task.level,
+            task_level=int(level),
+            bottleneck_diagnosis=diagnosis,
+            suggested_actions=suggested,
+            cost_hotspot=cost_hotspot,
+            rows_scanned_ratio=float(rows_ratio),
+            target_ms=float(target_ms),
         )
-        self.best_rewrite = base_query
-        self.best_ms = baseline_ms
-        return self.state_obj
+
+    def reset(self, seed: Optional[int] = None) -> dict:
+        """
+        Start a new episode.
+
+        Returns observation as dict (JSON-serializable).
+        """
+        task = self._get_task(level=1, seed=seed)
+        self.target_ms = float(task.target_ms)
+        self.best_query = task.query
+        self.best_ms = float("inf")
+
+        self._state = self._build_observation(task.query, task.level, task.target_ms)
+        return self._state
 
     def state(self) -> Observation:
-        if self.state_obj is None:
-            raise RuntimeError("call reset() before state()")
-        return self.state_obj
+        """Return the latest observation object."""
+        if self._state is None:
+            raise RuntimeError("Call reset() before state()")
+        return self._state
 
-    def step(self, action: str, rewritten_query: str) -> tuple[Observation, float, bool, dict[str, Any]]:
-        if self.state_obj is None:
-            raise RuntimeError("call reset() before step()")
+    def step(self, action: str, rewritten_query: str) -> Tuple[dict, float, bool, dict]:
+        """
+        Execute one step in the episode.
+
+        Returns:
+            (observation_dict, reward, done, info)
+        """
+        if self._state is None:
+            raise RuntimeError("Call reset() before step()")
 
         if action not in VALID_ACTIONS:
-            return self.state_obj, -10.0, False, {"error": "invalid_action"}
+            return self._state.to_dict(), -15.0, False, {
+                "error": "invalid_action",
+                "message": f"Unsupported action: {action}",
+            }
 
         if action == "revert":
-            rewritten_query = self.best_rewrite or self.state_obj.original_query
+            rewritten_query = self.best_query or self._state.original_query
 
-        # 1. Validate the rewritten query is parseable SQL
-        if not self._validate_sql(rewritten_query):
-            return self.state_obj, -15.0, False, {"error": "syntax_error"}
+        if not self.validate_sql(rewritten_query):
+            return self._state.to_dict(), -15.0, False, {
+                "error": "syntax_error",
+                "message": "Invalid SQL or DDL statement detected",
+            }
 
-        # 2. Run the new query and measure time
         try:
-            new_ms, new_hash, new_rows = self.execute_and_measure(rewritten_query)
+            new_ms, new_hash, _ = self.execute_and_measure(rewritten_query, timeout_s=5)
         except TimeoutError:
-            return self.state_obj, -12.0, False, {"error": "timeout"}
+            return self._state.to_dict(), -12.0, False, {
+                "error": "timeout",
+                "message": "Query exceeded 5 second timeout",
+            }
+        except Exception as error:
+            return self._state.to_dict(), -15.0, False, {
+                "error": "execution_error",
+                "message": str(error),
+            }
 
-        # 3. Anti-cheat: verify result set unchanged
-        if new_hash != self.state_obj.result_hash or new_rows != self.state_obj.result_row_count:
-            return self.state_obj, -20.0, False, {"error": "result_changed"}
+        if new_hash != self._state.result_hash:
+            return self._state.to_dict(), -20.0, False, {
+                "error": "result_changed",
+                "message": "Result set changed — reward hacking detected",
+            }
 
-        # 4. Get new EXPLAIN plan
         try:
             new_plan = get_explain_dict(self.conn, rewritten_query, timeout_ms=self.timeout_ms)
-        except TimeoutError:
-            return self.state_obj, -12.0, False, {"error": "explain_timeout"}
+        except Exception:
+            new_plan = self._state.explain_plan
 
-        # 5. Compute reward
-        reward = compute_reward(self.state_obj.execution_ms, new_ms, new_plan, self.state_obj.explain_plan)
-
-        # 6. Update state
-        if self.best_ms is None or new_ms < self.best_ms:
-            self.best_ms = new_ms
-            self.best_rewrite = rewritten_query
-
-        self.state_obj.execution_ms = new_ms
-        self.state_obj.explain_plan = new_plan
-        self.state_obj.previous_rewrites.append(rewritten_query)
-        self.state_obj.step_count += 1
-
-        done = bool(
-            (self.current_task is not None and new_ms < self.current_task.target_ms)
-            or (self.state_obj.step_count >= self.max_steps)
+        reward, breakdown = compute_reward(
+            old_ms=self._state.execution_ms,
+            new_ms=new_ms,
+            new_plan=new_plan,
+            old_plan=self._state.explain_plan,
+            step_number=self._state.step_count,
+            table_sizes=TABLE_SIZES,
         )
-        return self.state_obj, reward, done, {}
 
-    def state_dict(self) -> dict[str, Any]:
-        return asdict(self.state())
+        if new_ms < self.best_ms:
+            self.best_ms = float(new_ms)
+            self.best_query = rewritten_query
+
+        self._state.previous_rewrites.append(rewritten_query)
+        self._state.previous_rewards.append(float(reward))
+        self._state.execution_ms = float(new_ms)
+        self._state.explain_plan = new_plan
+        self._state.step_count += 1
+        self._state.bottleneck_diagnosis = diagnose_bottleneck(new_plan, TABLE_SIZES)
+
+        done = bool(new_ms <= self.target_ms or self._state.step_count >= self.max_steps)
+        info = {
+            "reward_breakdown": breakdown,
+            "new_ms": float(new_ms),
+            "best_ms": float(self.best_ms),
+            "step_count": int(self._state.step_count),
+        }
+        return self._state.to_dict(), float(reward), done, info
