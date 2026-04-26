@@ -293,25 +293,15 @@ def issue_syntax_error() -> int:
     if MARK_SY in t:
         C.print(f"[dim]train.py already has {MARK_SY}[/dim]\n")
         return 0
-    old = """    prompt_rows = [
-        {
-            "prompt": (
-                "You are SQLSage. Rewrite the SQL query for better performance while preserving result semantics. "
-                "Return only SQL (or a fenced ```sql block)."
-            )
-        }
-        for _ in range(256)
-    ]"""
-    new = f"""    prompt_rows = [
-        {{
-            "prompt": (
-                'Valid JSON: {{"action": "push_filter", "rewritten_query": "SELECT 1"}}.  # {MARK_SY}
-                "You are SQLSage. Rewrite the SQL query for better performance while preserving result semantics. "
-                "Return only SQL (or a fenced ```sql block)."
-            )
-        }}
-        for _ in range(256)
-    ]"""
+    old = """        generic = (
+            "You are SQLSage. Rewrite the SQL query for better performance while preserving result semantics. "
+            "Return only SQL (or a fenced ```sql block)."
+        )"""
+    new = f"""        generic = (
+            'Valid JSON: {{"action": "push_filter", "rewritten_query": "SELECT 1"}}.  # {MARK_SY}
+            "You are SQLSage. Rewrite the SQL query for better performance while preserving result semantics. "
+            "Return only SQL (or a fenced ```sql block)."
+        )"""
     if old not in t:
         C.print(
             f"[red]train.py prompt_rows block not found (layout changed).[/red]"

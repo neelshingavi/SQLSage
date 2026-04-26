@@ -13,6 +13,97 @@ import requests
 ProgressCallback = Optional[Callable[[float, str], None]]
 
 
+def _observation_to_make_prompt_dict(observation: dict[str, Any]) -> dict[str, Any]:
+    """Map an env/HTTP observation dict to the keys :func:`sqlsage.dataset.make_prompt` expects."""
+    ex = observation.get("explain_plan", {})
+    if isinstance(ex, str):
+        try:
+            import json
+
+            ex = json.loads(ex)
+        except Exception:  # pragma: no cover
+            ex = {}
+    if not isinstance(ex, dict):
+        ex = {}
+    return {
+        "original_query": str(observation.get("original_query", "")),
+        "explain_plan": ex,
+        "execution_ms": float(observation.get("execution_ms", 0.0)),
+        "result_hash": str(observation.get("result_hash", "")),
+        "schema_context": str(observation.get("schema_context", "")),
+    }
+
+
+def _build_env_prompt_rows(
+    env_client: "SQLSageEnvClient", n: int
+) -> tuple[list[dict[str, str]], dict[str, int]]:
+    """
+    Call ``reset(seed=i)`` for ``i in range(n)``, build :func:`make_prompt` text per row, and
+    a map *full prompt string* → *seed* so the reward can ``reset`` the same task as the model
+    was shown (TRL may broadcast one prompt to many completions, so the map is by exact text).
+    """
+    from sqlsage.dataset import make_prompt
+
+    rows: list[dict[str, str]] = []
+    prompt_to_seed: dict[str, int] = {}
+    for i in range(int(n)):
+        obs = env_client.reset(seed=i)
+        if not isinstance(obs, dict):
+            obs = {}
+        text = make_prompt(_observation_to_make_prompt_dict(obs))
+        if text in prompt_to_seed and prompt_to_seed[text] != i:
+            text = f"{text}\n# disambiguation: env_seed={i}\n"
+        prompt_to_seed[text] = i
+        rows.append({"prompt": text})
+    return rows, prompt_to_seed
+
+
+def _parse_action_and_sql(
+    completion: str, suggested_actions: List[str]
+) -> tuple[str, str]:
+    """
+    Prefer a JSON object with ``action`` and ``rewritten_query`` (matches ``make_prompt``);
+    otherwise fall back to a ```sql`` fence / raw text and the first suggested action.
+    """
+    default_a = (suggested_actions[0] if suggested_actions else "push_filter") or "push_filter"
+    s = (completion or "").strip()
+    m = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", s, flags=re.IGNORECASE)
+    blob = m.group(1).strip() if m else s
+    start = blob.find("{")
+    if start >= 0:
+        try:
+            from json import JSONDecoder
+
+            data, _ = JSONDecoder().raw_decode(blob, start)
+            if isinstance(data, dict):
+                rq = str(data.get("rewritten_query", "")).strip()
+                if rq:
+                    act = str(data.get("action", "") or default_a).strip() or default_a
+                    if act in (
+                        "rewrite_join",
+                        "add_cte",
+                        "push_filter",
+                        "reorder_joins",
+                        "suggest_index",
+                        "limit_early",
+                        "revert",
+                    ):
+                        return act, rq
+                    return default_a, rq
+        except Exception:
+            pass
+    return default_a, _extract_sql_candidate(completion)
+
+
+def _align_prompt(i: int, prompts: List[str]) -> str:
+    """Index ``i`` into ``prompts``; if TRL broadcast a single prompt, use ``prompts[0]``."""
+    if not prompts:
+        return ""
+    if i < len(prompts):
+        return prompts[i]
+    return prompts[0]
+
+
 def _emit_progress(progress_callback: ProgressCallback, progress: float, message: str) -> None:
     """Emit a normalized progress update when callback is provided."""
     if progress_callback is not None:
@@ -69,7 +160,15 @@ def run_training(progress_callback: ProgressCallback = None) -> dict:
     """
     Run SQLSage GRPO training against a deployed HF Space env server.
 
-    The environment URL is read from SQLSAGE_ENV_URL.
+    The environment URL is read from ``SQLSAGE_ENV_URL``.
+
+    **Prompts:** By default, the training set is built with :func:`sqlsage.dataset.make_prompt`
+    and a fresh ``/reset?seed=`` / observation per row so the model sees the same query,
+    EXPLAIN summary, schema, and rewrite-pattern hints that the reward step evaluates.
+    Set ``SQLSAGE_TRAIN_PLAIN_PROMPT=1`` to use a short generic prompt for smoke tests (reward
+    still uses index ``idx`` to ``reset``). ``SQLSAGE_TRAIN_DATASET_SIZE`` controls row count
+    (default 256). Long plans + few-shots can exceed small ``SQLSAGE_MAX_SEQ_LENGTH``; increase
+    it if you see truncation.
     """
     env_url = os.environ.get("SQLSAGE_ENV_URL", "").strip()
     if not env_url:
@@ -120,16 +219,28 @@ def run_training(progress_callback: ProgressCallback = None) -> dict:
         use_gradient_checkpointing="unsloth",
     )
 
-    _emit_progress(progress_callback, 0.22, "Preparing training prompts")
-    prompt_rows = [
-        {
-            "prompt": (
-                "You are SQLSage. Rewrite the SQL query for better performance while preserving result semantics. "
-                "Return only SQL (or a fenced ```sql block)."
-            )
-        }
-        for _ in range(256)
-    ]
+    n_rows = int(os.environ.get("SQLSAGE_TRAIN_DATASET_SIZE", "256"))
+    use_plain = os.environ.get("SQLSAGE_TRAIN_PLAIN_PROMPT", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    prompt_to_seed: dict[str, int] = {}
+    _emit_progress(
+        progress_callback,
+        0.22,
+        "Preparing training prompts"
+        + (" (plain generic)" if use_plain else " (make_prompt + env observations)"),
+    )
+    if use_plain:
+        # Same text every row: reward must pair by example index, not by prompt string.
+        generic = (
+            "You are SQLSage. Rewrite the SQL query for better performance while preserving result semantics. "
+            "Return only SQL (or a fenced ```sql block)."
+        )
+        prompt_rows = [{"prompt": generic} for _ in range(n_rows)]
+    else:
+        prompt_rows, prompt_to_seed = _build_env_prompt_rows(env_client, n_rows)
     train_dataset = Dataset.from_list(prompt_rows)
 
     _emit_progress(progress_callback, 0.30, "Initializing Weights & Biases")
@@ -147,11 +258,19 @@ def run_training(progress_callback: ProgressCallback = None) -> dict:
         rewards: List[float] = []
         for idx, completion in enumerate(completions):
             try:
-                observation = env_client.reset(seed=idx)
-                action_candidates = observation.get("suggested_actions", []) if isinstance(observation, dict) else []
-                action = action_candidates[0] if action_candidates else "push_filter"
-                sql_query = _extract_sql_candidate(completion)
-                _, reward, _, info = env_client.step(action=action, rewritten_query=sql_query)
+                prompt_i = _align_prompt(idx, prompts)
+                if use_plain or not prompt_to_seed:
+                    seed = idx
+                else:
+                    seed = int(prompt_to_seed.get(prompt_i, idx))
+                observation = env_client.reset(seed=seed)
+                if not isinstance(observation, dict):
+                    observation = {}
+                action_candidates = list(observation.get("suggested_actions", []) or [])
+                action, sql_query = _parse_action_and_sql(completion, action_candidates)
+                _, reward, _, info = env_client.step(
+                    action=action, rewritten_query=sql_query
+                )
                 rewards.append(float(reward))
                 try:
                     wandb.log(
