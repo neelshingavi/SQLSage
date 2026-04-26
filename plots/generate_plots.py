@@ -13,17 +13,24 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
+from PIL import Image, ImageDraw
+
+HAS_MATPLOTLIB = True
+try:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+except Exception:
+    HAS_MATPLOTLIB = False
 
 # ---------------------------------------------------------------------------
 # Styling (non-negotiable)
 # ---------------------------------------------------------------------------
 
-plt.style.use("seaborn-v0_8-whitegrid")
+if HAS_MATPLOTLIB:
+    plt.style.use("seaborn-v0_8-whitegrid")
 TITLE_FS = 14
 AXIS_LABEL_FS = 11
 TICK_FS = 9
@@ -33,6 +40,56 @@ FOOTER_KW = {"fontsize": 8, "color": "gray", "ha": "center", "va": "top"}
 
 def _footer(fig: matplotlib.figure.Figure) -> None:
     fig.text(0.5, 0.01, FOOTER_TEXT, **FOOTER_KW)
+
+
+def _save_pillow_plot(
+    out_path: str,
+    title: str,
+    y_label: str,
+    series: list[tuple[np.ndarray, tuple[int, int, int], int]],
+    x_max: int,
+) -> bool:
+    width, height = 1400, 700
+    margin_l, margin_r, margin_t, margin_b = 90, 40, 70, 80
+    plot_w = width - margin_l - margin_r
+    plot_h = height - margin_t - margin_b
+
+    img = Image.new("RGB", (width, height), (255, 255, 255))
+    draw = ImageDraw.Draw(img)
+
+    valid = [arr[np.isfinite(arr)] for arr, _, _ in series if np.any(np.isfinite(arr))]
+    if valid:
+        y_min = float(min(np.min(v) for v in valid))
+        y_max = float(max(np.max(v) for v in valid))
+    else:
+        y_min, y_max = 0.0, 1.0
+    if y_min == y_max:
+        y_max = y_min + 1.0
+    y_pad = 0.08 * (y_max - y_min)
+    y_min -= y_pad
+    y_max += y_pad
+
+    draw.rectangle([margin_l, margin_t, width - margin_r, height - margin_b], outline=(180, 180, 180), width=1)
+    draw.text((margin_l, 20), title, fill=(25, 25, 25))
+    draw.text((10, margin_t + 10), y_label, fill=(60, 60, 60))
+    draw.text((width // 2 - 25, height - 30), "Episode", fill=(60, 60, 60))
+
+    def xmap(i: int) -> float:
+        return margin_l + (i / max(1, x_max)) * plot_w
+
+    def ymap(v: float) -> float:
+        return margin_t + (1.0 - (v - y_min) / (y_max - y_min)) * plot_h
+
+    for arr, color, line_w in series:
+        points = []
+        for i, v in enumerate(arr):
+            if np.isfinite(v):
+                points.append((xmap(i), ymap(float(v))))
+        if len(points) > 1:
+            draw.line(points, fill=color, width=line_w)
+
+    img.save(out_path)
+    return True
 
 
 def _rolling_mean(a: np.ndarray, window: int) -> np.ndarray:
@@ -242,17 +299,29 @@ def _try_load_wandb(n_episodes: int = 300) -> EpisodeSeries | None:
 def load_series(n_episodes: int = 300) -> EpisodeSeries:
     data = _try_load_wandb(n_episodes)
     if data is None:
-        print("⚠️  wandb data unavailable — using synthetic data for plots", flush=True)
+        print("WARNING: wandb data unavailable - using synthetic data for plots", flush=True)
         return _synthetic_series(n_episodes, seed=42)
     return data
 
 
 def plot_reward_curve(data: EpisodeSeries, out_path: str) -> bool:
     try:
-        fig, ax = plt.subplots(figsize=(12, 5))
         ep = data.episodes
         raw = data.reward_raw
         roll20 = _rolling_mean(raw, 20)
+        if not HAS_MATPLOTLIB:
+            return _save_pillow_plot(
+                out_path=out_path,
+                title="SQLSage Training - Mean Reward per Episode",
+                y_label="Mean Reward",
+                series=[
+                    (raw, (140, 140, 140), 2),
+                    (roll20, (11, 61, 109), 4),
+                ],
+                x_max=len(ep) - 1,
+            )
+
+        fig, ax = plt.subplots(figsize=(12, 5))
 
         ax.plot(ep, raw, color="gray", alpha=0.35, linewidth=0.8, label="Per-episode reward")
         ax.plot(ep, roll20, color="#0b3d6d", linewidth=2.4, label="20-episode rolling mean")
@@ -294,12 +363,26 @@ def plot_reward_curve(data: EpisodeSeries, out_path: str) -> bool:
 
 def plot_penalty_dashboard(data: EpisodeSeries, out_path: str) -> bool:
     try:
-        fig, axes = plt.subplots(1, 2, figsize=(14, 5), sharex=True)
         ep = data.episodes
-        w = 0.85
-
         res = data.penalty_result_changed
         syn = data.penalty_syntax_error
+        if not HAS_MATPLOTLIB:
+            combined = np.asarray(res) + np.asarray(syn)
+            roll10 = _rolling_mean_centered(combined, 10)
+            return _save_pillow_plot(
+                out_path=out_path,
+                title="Penalty Dashboard - Result Changed + Syntax",
+                y_label="Penalties",
+                series=[
+                    (combined, (231, 126, 34), 2),
+                    (roll10, (192, 57, 43), 4),
+                ],
+                x_max=len(ep) - 1,
+            )
+
+        fig, axes = plt.subplots(1, 2, figsize=(14, 5), sharex=True)
+        w = 0.85
+
         roll_res = _rolling_mean_centered(res, 10)
         roll_syn = _rolling_mean_centered(syn, 10)
 
@@ -368,9 +451,24 @@ def plot_penalty_dashboard(data: EpisodeSeries, out_path: str) -> bool:
 
 def plot_plan_improvement(data: EpisodeSeries, out_path: str) -> bool:
     try:
-        fig, axes = plt.subplots(2, 1, figsize=(10, 10), sharex=False)
         ep = data.episodes
         seq = data.seq_scans_removed
+        elen = data.episode_length
+        if not HAS_MATPLOTLIB:
+            roll_seq = _rolling_mean(seq, 15)
+            roll_el = _rolling_mean(elen, 15)
+            return _save_pillow_plot(
+                out_path=out_path,
+                title="Plan Improvement - Seq Scans Removed + Episode Length",
+                y_label="Metric Value",
+                series=[
+                    (roll_seq, (30, 132, 73), 4),
+                    (roll_el, (74, 35, 90), 4),
+                ],
+                x_max=len(ep) - 1,
+            )
+
+        fig, axes = plt.subplots(2, 1, figsize=(10, 10), sharex=False)
         roll_seq = _rolling_mean(seq, 15)
 
         mask_star = seq >= 2.0
@@ -384,7 +482,6 @@ def plot_plan_improvement(data: EpisodeSeries, out_path: str) -> bool:
         axes[0].tick_params(labelsize=TICK_FS)
         axes[0].legend(loc="upper left", fontsize=9)
 
-        elen = data.episode_length
         roll_el = _rolling_mean(elen, 15)
         axes[1].plot(ep, elen, color="#7d3c98", alpha=0.45, linewidth=1.0, marker="o", markersize=2.5, label="Steps per episode")
         axes[1].plot(ep, roll_el, color="#4a235a", linewidth=2.2, label="15-episode rolling mean")
@@ -445,14 +542,14 @@ def main() -> int:
     for (fn, path), label in zip(paths, labels):
         ok = fn(data, path)
         if ok:
-            print(f"✅ {label}", flush=True)
+            print(f"OK: {label}", flush=True)
         else:
             failures += 1
 
     print_summary(data)
 
     if failures:
-        print(f"⚠️  {failures} plot(s) failed — check errors above", flush=True)
+        print(f"WARNING: {failures} plot(s) failed - check errors above", flush=True)
         return 1
     return 0
 

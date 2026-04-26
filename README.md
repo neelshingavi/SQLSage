@@ -1,13 +1,3 @@
----
-title: Sqlsage Env
-emoji: 🐠
-colorFrom: blue
-colorTo: blue
-sdk: docker
-pinned: false
-license: mit
----
-
 <div align="center">
   <h1>SQLSage</h1>
   <p><strong>Reinforcement learning environment for SQL query optimization on PostgreSQL (TPC-H)</strong></p>
@@ -157,6 +147,12 @@ To include animated learning curves, export your W&B panel as GIF and embed in `
 ```md
 ![Learning Curves](docs/assets/learning-curves.gif)
 ```
+
+### Latest Curves (PNG)
+
+![Reward Curve](plots/reward_curve.png)
+![Penalty Dashboard](plots/penalty_dashboard.png)
+![Plan Improvement](plots/plan_improvement.png)
 
 ## Current Results Snapshot
 
