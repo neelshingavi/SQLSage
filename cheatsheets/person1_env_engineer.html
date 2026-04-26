@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>SQLSage — Person 1: Environment Engineer</title>
+<style>
+@page { size: A4; margin: 10mm; }
+@media print {
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+* { box-sizing: border-box; }
+body {
+  background: #fff; color: #000;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 8.5pt; line-height: 1.22;
+  max-width: 195mm; margin: 0 auto; padding: 4mm 5mm 8mm 5mm;
+}
+h1 { font-size: 12pt; margin: 0.15em 0; font-weight: 700; }
+h2 { font-size: 9.5pt; margin: 0.5em 0 0.15em; border-bottom: 1px solid #333; }
+h3 { font-size: 8.7pt; margin: 0.35em 0 0.1em; }
+p { margin: 0.2em 0; }
+ul, ol { margin: 0.15em 0; padding-left: 1.2em; }
+ul { list-style: disc; }
+table.cheat { width: 100%; border-collapse: collapse; margin: 0.25em 0; font-size: 7.8pt; }
+table.cheat th {
+  background: #1a365d; color: #fff; text-align: left; padding: 2px 4px;
+  font-weight: 600; font-size: 7.5pt;
+}
+table.cheat td { border: 1px solid #999; padding: 2px 3px; vertical-align: top; }
+pre.cmd {
+  font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+  font-size: 7.3pt; background: #f4f4f4; border: 1px solid #ccc; padding: 3px 4px;
+  margin: 0.25em 0; white-space: pre-wrap; word-break: break-word;
+}
+code.ic {
+  font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+  font-size: 7.5pt; background: #f0f0f0; padding: 0 2px;
+}
+br { line-height: 0.2em; }
+</style>
+</head>
+<body>
+<h1>SQLSage — Person 1: Environment Engineer</h1>
+<p><strong>Deadline: Hour 8 = HF Space live</strong></p>
+<h2>Setup Commands</h2>
+<table class="cheat">
+<thead><tr><th>Command</th><th>What it does</th></tr></thead><tbody>
+<tr><td><code class="ic">openenv init sqlsage-env</code></td><td>Creates the scaffold (run from parent of the repo dir)</td></tr>
+<tr><td><code class="ic">docker compose up -d</code></td><td>Start Postgres (see <code class="ic">docker-compose.yml</code>; default <strong>port 5433</strong> in README)</td></tr>
+<tr><td><code class="ic">uvicorn sqlsage.app:app --reload --port 8000</code></td><td>Runs environment locally (set <code class="ic">POSTGRES_HOST</code> / <code class="ic">POSTGRES_PORT</code>)</td></tr>
+<tr><td><code class="ic">openenv push your-username/sqlsage-env</code></td><td>Deploys to HF Spaces</td></tr>
+<tr><td><code class="ic">docker run --name sqlsage-pg -e POSTGRES_PASSWORD=sqlsage -e POSTGRES_DB=sqlsage -p 5432:5432 -d postgres:16</code></td><td>Single-container Postgres 16 (alt. to compose)</td></tr>
+<tr><td><code class="ic">curl http://localhost:8000/reset</code></td><td>Tests reset endpoint (local)</td></tr>
+<tr><td><code class="ic">curl -sS &quot;$SQLSAGE_ENV_URL/reset&quot;</code></td><td>Tests deployed Space (set URL from <code class="ic">.env</code>)</td></tr>
+<tr><td><code class="ic">psql &quot;host=127.0.0.1 port=5433 user=postgres dbname=sqlsage password=sqlsage&quot; -c &#x27;SELECT version();&#x27;</code></td><td>Verify DB (project default port <strong>5433</strong>)</td></tr>
+<tr><td><code class="ic">openenv validate</code></td><td>OpenEnv project validation</td></tr>
+<tr><td><code class="ic">python -m sqlsage.run p1-serve</code></td><td><strong>Alias</strong> → uvicorn (from <code class="ic">sqlsage.run</code>)</td></tr>
+<tr><td><code class="ic">python -m sqlsage.run p1-test</code></td><td><strong>Alias</strong> → curl local <code class="ic">/reset</code> \</td><td><code class="ic">json.tool</code></td></tr>
+<tr><td><code class="ic">python -m sqlsage.run p1-push</code> / <code class="ic">p1-deploy</code></td><td><strong>Alias</strong> → push + optional HF curl</td></tr>
+</tbody></table>
+<h2>TPC-H Data Load</h2>
+<table class="cheat">
+<thead><tr><th>Command</th><th>What it does</th></tr></thead><tbody>
+<tr><td><code class="ic">git clone https://github.com/electrum/tpch-dbgen.git &amp;&amp; cd tpch-dbgen &amp;&amp; make</code></td><td>Clone TPC-H tools</td></tr>
+<tr><td><code class="ic">./dbgen -s 1</code></td><td>Generate SF=1 data (~1GB, ~2 min)</td></tr>
+<tr><td><code class="ic">./dbgen -s 0.1</code></td><td>Generate SF=0.1 (fast, for training)</td></tr>
+<tr><td><code class="ic">psql -U postgres -d sqlsage -f dss.ddl</code></td><td>Create schema (paths per your load process)</td></tr>
+<tr><td>TPC-H bootstrap in Docker / HF image</td><td><code class="ic">sql/bootstrap_tpch_schema.sql</code> auto-runs in Space; load data separately for real rewards</td></tr>
+</tbody></table>
+<h2>Drop Indexes (Creates Optimization Headroom)</h2>
+<pre class="cmd">psql &quot;host=127.0.0.1 port=5433 user=postgres dbname=sqlsage password=sqlsage&quot; \
+  -f sql/scripts/drop_curriculum_indexes.sql
+psql -U postgres -d sqlsage -c &quot;DROP INDEX IF EXISTS idx_orders_status;&quot;
+psql -U postgres -d sqlsage -c &quot;DROP INDEX IF EXISTS idx_lineitem_shipdate;&quot;</pre>
+<h2>Stress &amp; Levels (phases: curriculum / env hardening)</h2>
+<table class="cheat">
+<thead><tr><th>Command</th><th>What it does</th></tr></thead><tbody>
+<tr><td><code class="ic">POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5433 python scripts/stress_env.py --episodes 50 --levels 2 --identity-step</code></td><td>Stress <code class="ic">reset</code> / optional identity <code class="ic">step</code> (no GRPO)</td></tr>
+<tr><td><code class="ic">SQLSageEnv(tasks=tasks_for_levels(2))</code></td><td>Level 2 only (see <code class="ic">sqlsage.tasks</code>)</td></tr>
+<tr><td><code class="ic">GET /health</code></td><td>Health check (OpenEnv HTTP)</td></tr>
+<tr><td><code class="ic">GET /state</code>, <code class="ic">GET /schema</code>, <code class="ic">GET /metadata</code></td><td>Session / schema metadata</td></tr>
+</tbody></table>
+<h2>Troubleshooting</h2>
+<table class="cheat">
+<thead><tr><th>Symptom</th><th>Fix</th></tr></thead><tbody>
+<tr><td><code class="ic">curl /reset</code> returns 500</td><td><code class="ic">docker ps</code> / <code class="ic">docker compose ps</code> — DB + API up; check logs</td></tr>
+<tr><td>HF Space build failing</td><td><code class="ic">Dockerfile</code> + entrypoint: Postgres as service, <code class="ic">uvicorn</code> on <code class="ic">$PORT</code> (7860 on HF)</td></tr>
+<tr><td>TPC-H load too long</td><td>Use SF=0.1 for dev; SF=1 for final demo; raise <code class="ic">SQLSAGE_TIMEOUT_MS</code> if needed</td></tr>
+<tr><td>Intermittent 500 under load</td><td>OpenEnv uses a <strong>lock</strong> for reset/step; avoid parallel <code class="ic">step</code> to same process</td></tr>
+</tbody></table>
+<h2>Hour Gates</h2>
+<ul>
+<li>Hour 1: psql connects ✓</li>
+<li>Hour 4: <code class="ic">curl /reset</code> returns JSON ✓</li>
+<li>Hour 6: <code class="ic">step()</code> returns <code class="ic">{reward, done, state}</code> ✓</li>
+<li>Hour 8: <strong>HF Space live</strong> — <strong>SHARE URL WITH TEAM</strong> (<code class="ic">SQLSAGE_ENV_URL</code> in Colab) ✓</li>
+</ul>
+</body>
+</html>

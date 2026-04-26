@@ -26,6 +26,13 @@ monitor = [
   "rich>=13",
   "torch",
 ]
+# sqlsage.run CLI + status_checker extras
+run = [
+  "rich>=13",
+  "python-dotenv>=1.0.0",
+  "requests>=2.28",
+  "wandb>=0.16",
+]
 
 [project.scripts]
 server = "server.app:main"

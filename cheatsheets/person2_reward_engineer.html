@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>SQLSage — Person 2: Reward &amp; Verifier Engineer</title>
+<style>
+@page { size: A4; margin: 10mm; }
+@media print {
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+* { box-sizing: border-box; }
+body {
+  background: #fff; color: #000;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 8.5pt; line-height: 1.22;
+  max-width: 195mm; margin: 0 auto; padding: 4mm 5mm 8mm 5mm;
+}
+h1 { font-size: 12pt; margin: 0.15em 0; font-weight: 700; }
+h2 { font-size: 9.5pt; margin: 0.5em 0 0.15em; border-bottom: 1px solid #333; }
+h3 { font-size: 8.7pt; margin: 0.35em 0 0.1em; }
+p { margin: 0.2em 0; }
+ul, ol { margin: 0.15em 0; padding-left: 1.2em; }
+ul { list-style: disc; }
+table.cheat { width: 100%; border-collapse: collapse; margin: 0.25em 0; font-size: 7.8pt; }
+table.cheat th {
+  background: #1a365d; color: #fff; text-align: left; padding: 2px 4px;
+  font-weight: 600; font-size: 7.5pt;
+}
+table.cheat td { border: 1px solid #999; padding: 2px 3px; vertical-align: top; }
+pre.cmd {
+  font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+  font-size: 7.3pt; background: #f4f4f4; border: 1px solid #ccc; padding: 3px 4px;
+  margin: 0.25em 0; white-space: pre-wrap; word-break: break-word;
+}
+code.ic {
+  font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+  font-size: 7.5pt; background: #f0f0f0; padding: 0 2px;
+}
+br { line-height: 0.2em; }
+</style>
+</head>
+<body>
+<h1>SQLSage — Person 2: Reward &amp; Verifier Engineer</h1>
+<p><strong>Your job: reward pipeline works, no reward hacking, plots committed by Hour 16</strong></p>
+<h2>Core Commands</h2>
+<table class="cheat">
+<thead><tr><th>Command</th><th>What it does</th></tr></thead><tbody>
+<tr><td><code class="ic">pytest tests/ -v</code></td><td>All unit tests</td></tr>
+<tr><td><code class="ic">pytest tests/test_reward.py -v</code></td><td>Reward tests only</td></tr>
+<tr><td><code class="ic">pytest tests/test_explain_parser.py -v</code></td><td>Parser tests only</td></tr>
+<tr><td><code class="ic">pytest tests/test_anti_cheat.py -v</code></td><td>Anti-cheat tests only</td></tr>
+<tr><td><code class="ic">wandb login</code></td><td>Authenticate W&amp;B</td></tr>
+<tr><td><code class="ic">python monitor_training.py</code></td><td>Live reward diagnostics (when configured)</td></tr>
+<tr><td><code class="ic">python plots/generate_plots.py</code></td><td><strong>Actual path</strong> — generate PNGs in <code class="ic">plots/</code></td></tr>
+<tr><td><code class="ic">python -m sqlsage.run p2-reward</code></td><td><strong>Alias</strong> → quick <code class="ic">compute_reward</code> demo + breakdown</td></tr>
+<tr><td><code class="ic">python -m sqlsage.run p2-plots</code></td><td><strong>Alias</strong> → <code class="ic">plots/generate_plots.py</code></td></tr>
+<tr><td><code class="ic">python -m sqlsage.run p2-anticheat</code></td><td><strong>Alias</strong> → <code class="ic">fix_training.py --issue reward_hacking</code></td></tr>
+<tr><td><code class="ic">python -m sqlsage.status_checker --json</code></td><td>Milestone + reward/plots/git checks (JSON)</td></tr>
+</tbody></table>
+<h2>Quick Reward Test</h2>
+<p><code class="ic">compute_reward</code> returns <strong>(normalized ∈ [-1,1], breakdown dict)</strong> — use both:</p>
+<pre class="cmd">from sqlsage.reward import compute_reward, format_reward_breakdown
+new_plan = {
+    &quot;seq_scans&quot;: 0, &quot;nested_loops&quot;: 0, &quot;hash_joins&quot;: 1, &quot;total_cost&quot;: 1000,
+    &quot;rows&quot;: 1e5, &quot;node_type&quot;: &quot;x&quot;,
+}
+old_plan = {
+    &quot;seq_scans&quot;: 2, &quot;nested_loops&quot;: 1, &quot;hash_joins&quot;: 0, &quot;total_cost&quot;: 50000,
+    &quot;rows&quot;: 1e6, &quot;node_type&quot;: &quot;y&quot;,
+}
+n, b = compute_reward(8420.0, 310.0, new_plan, old_plan, step_number=0)
+print(&quot;normalized:&quot;, n)
+print(format_reward_breakdown(b))
+# Raw sum can be large; see breakdown[&quot;raw&quot;] and breakdown[&quot;normalized&quot;]</pre>
+<h2>Quick EXPLAIN Test</h2>
+<pre class="cmd">psql -h 127.0.0.1 -p 5433 -U postgres -d sqlsage -c \
+&quot;EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM orders WHERE orderstatus=&#x27;F&#x27; LIMIT 100;&quot;</pre>
+<h2>Anti-Cheat Attack Vectors to Test Manually</h2>
+<ol>
+<li><code class="ic">LIMIT 0</code> → strong negative / guard</li>
+<li><code class="ic">WHERE 1=0</code> → strong negative / guard</li>
+<li>Remove <code class="ic">WHERE</code> clause (wrong result) → <code class="ic">result_changed</code> / penalty</li>
+<li><code class="ic">CREATE INDEX</code> / DDL → should be rejected / exception</li>
+<li>Unchanged query → <code class="ic">noop_penalty</code> (escalates by step)</li>
+</ol>
+<h2>Reward Component Reference (see <code class="ic">sqlsage/reward.py</code>)</h2>
+<table class="cheat">
+<thead><tr><th>Component</th><th>Rule (simplified)</th></tr></thead><tbody>
+<tr><td>Speedup</td><td>Up to <code class="ic">MAX_SPEEDUP_REWARD</code> × speedup ratio + <code class="ic">BIG_WIN</code> / <code class="ic">EXCEPTIONAL</code> bonuses at high ratio</td></tr>
+<tr><td>Plan</td><td><code class="ic">+SEQ_SCAN_BONUS</code> per seq scan removed, <code class="ic">+NESTED_LOOP_BONUS</code> per nested loop removed</td></tr>
+<tr><td>Rows / cost</td><td><code class="ic">ROWS_SIGNAL_WEIGHT</code> × row reduction; <code class="ic">COST_SIGNAL_WEIGHT</code> × cost reduction</td></tr>
+<tr><td>No-op</td><td><code class="ic">NOOP_PENALTIES[step]</code> if plan+latency effectively unchanged</td></tr>
+<tr><td>Slowdown</td><td><code class="ic">-SLOWDOWN_WEIGHT</code> × slowdown ratio</td></tr>
+<tr><td>Normalize</td><td><code class="ic">raw / NORMALIZATION_DIVISOR</code> → <strong>[-1, 1]</strong></td></tr>
+</tbody></table>
+<h2>If Reward Hacking Detected</h2>
+<pre class="cmd">python fix_training.py --issue reward_hacking</pre>
+<h2>Plots + Evidence (phases: Phase 8, rollout comparison)</h2>
+<table class="cheat">
+<thead><tr><th>Command</th><th>What it does</th></tr></thead><tbody>
+<tr><td><code class="ic">export WANDB_ENTITY=...; export WANDB_PROJECT=sqlsage-grpo</code></td><td>Match training project (see <code class="ic">docs/PHASE8_CLOSEOUT_CHECKLIST.md</code>)</td></tr>
+<tr><td><code class="ic">SQLSAGE_PLOTS_DEBUG=1 python plots/generate_plots.py</code></td><td>Debug missing W&amp;B data for plots</td></tr>
+<tr><td><code class="ic">python scripts/compare_rollouts.py --baseline results/baseline.jsonl --trained results/trained.jsonl</code></td><td>Table when both JSONL exist</td></tr>
+</tbody></table>
+</body>
+</html>

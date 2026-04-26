@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>SQLSage — Person 3: Training Lead</title>
+<style>
+@page { size: A4; margin: 10mm; }
+@media print {
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+* { box-sizing: border-box; }
+body {
+  background: #fff; color: #000;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 8.5pt; line-height: 1.22;
+  max-width: 195mm; margin: 0 auto; padding: 4mm 5mm 8mm 5mm;
+}
+h1 { font-size: 12pt; margin: 0.15em 0; font-weight: 700; }
+h2 { font-size: 9.5pt; margin: 0.5em 0 0.15em; border-bottom: 1px solid #333; }
+h3 { font-size: 8.7pt; margin: 0.35em 0 0.1em; }
+p { margin: 0.2em 0; }
+ul, ol { margin: 0.15em 0; padding-left: 1.2em; }
+ul { list-style: disc; }
+table.cheat { width: 100%; border-collapse: collapse; margin: 0.25em 0; font-size: 7.8pt; }
+table.cheat th {
+  background: #1a365d; color: #fff; text-align: left; padding: 2px 4px;
+  font-weight: 600; font-size: 7.5pt;
+}
+table.cheat td { border: 1px solid #999; padding: 2px 3px; vertical-align: top; }
+pre.cmd {
+  font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+  font-size: 7.3pt; background: #f4f4f4; border: 1px solid #ccc; padding: 3px 4px;
+  margin: 0.25em 0; white-space: pre-wrap; word-break: break-word;
+}
+code.ic {
+  font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+  font-size: 7.5pt; background: #f0f0f0; padding: 0 2px;
+}
+br { line-height: 0.2em; }
+</style>
+</head>
+<body>
+<h1>SQLSage — Person 3: Training Lead</h1>
+<p><strong>Critical: Non-zero reward by Hour 12. 300+ episodes by Hour 18.</strong></p>
+<h2>Colab Setup Sequence</h2>
+<ol>
+<li>Runtime → Change runtime type → <strong>A100</strong> GPU</li>
+<li><code class="ic">!pip install &#x27;unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git&#x27; -q</code></li>
+<li><code class="ic">!pip install trl openenv wandb psycopg2-binary -q</code> — add <code class="ic">torch</code> as needed</li>
+<li><code class="ic">import torch; print(torch.cuda.get_device_name(0))</code> — must be A100 for Colab template</li>
+<li><code class="ic">pip install -e &#x27;.[training]&#x27;</code> (local) per README for <code class="ic">scripts/rollout_wandb.py</code></li>
+</ol>
+<h2>Env URL for rollouts</h2>
+<table class="cheat">
+<thead><tr><th>Variable</th><th>What it does</th></tr></thead><tbody>
+<tr><td><code class="ic">SQLSAGE_ENV_URL</code></td><td>Person 1 Space or local <code class="ic">http://127.0.0.1:8000</code> (see <code class="ic">README</code> / <code class="ic">.env.example</code>)</td></tr>
+<tr><td><code class="ic">WANDB_ENTITY</code>, <code class="ic">WANDB_PROJECT</code></td><td>W&amp;B org + project (e.g. <code class="ic">sqlsage-grpo</code>)</td></tr>
+</tbody></table>
+<h2>One-liners (phases: rollout, benchmark, closeout)</h2>
+<table class="cheat">
+<thead><tr><th>Command</th><th>What it does</th></tr></thead><tbody>
+<tr><td><code class="ic">python scripts/rollout_wandb.py --episodes 5</code></td><td>Quick smoke (see README)</td></tr>
+<tr><td><code class="ic">python run_benchmark.py</code></td><td>TPC-H style benchmark; writes <code class="ic">results/benchmark_results.json</code></td></tr>
+<tr><td><code class="ic">python -m sqlsage.run p3-benchmark</code></td><td><strong>Alias</strong> → <code class="ic">run_benchmark.py</code></td></tr>
+<tr><td><code class="ic">python -m sqlsage.run p3-gpu</code></td><td><strong>Alias</strong> → CUDA check (<code class="ic">torch</code>)</td></tr>
+<tr><td><code class="ic">python -m sqlsage.run p3-verify</code></td><td>Quick 5 checks (URL, W&amp;B, plots, benchmark file, README links)</td></tr>
+<tr><td><code class="ic">python -m sqlsage.status_checker --json</code></td><td>Full hackathon gate JSON</td></tr>
+<tr><td><code class="ic">docs/PERSON3_PHASE8_MANUAL.md</code></td><td><strong>§7–8 + §9</strong> — Colab, Hub, demo video, submission</td></tr>
+<tr><td><code class="ic">docs/PHASE8_CLOSEOUT_CHECKLIST.md</code></td><td>All-roles Phase 8 closeout</td></tr>
+<tr><td><code class="ic">notebooks/sqlsage_grpo_colab.ipynb</code></td><td>GRPO training skeleton</td></tr>
+</tbody></table>
+<h2>Model Save — CRITICAL</h2>
+<p><strong>CORRECT</strong></p>
+<pre class="cmd">model.save_pretrained_merged(
+    &quot;sqlsage-trained&quot;, tokenizer, save_method=&quot;merged_16bit&quot;
+)</pre>
+<p><strong>WRONG — can corrupt 4-bit quality</strong></p>
+<pre class="cmd">model.merge_and_unload()  # DO NOT USE on 4-bit as sole export path</pre>
+<h2>Common Fixes</h2>
+<table class="cheat">
+<thead><tr><th>Symptom</th><th>Fix</th></tr></thead><tbody>
+<tr><td>CUDA OOM</td><td><code class="ic">batch_size=2</code>, <code class="ic">max_completion_length=256</code>, <code class="ic">grad_accum=8</code></td></tr>
+<tr><td>Invalid JSON from model</td><td>Few-shot JSON example in prompt (see <code class="ic">fix_training</code> / notebook)</td></tr>
+<tr><td>Reward flat after ~50 ep</td><td><code class="ic">python fix_training.py --issue flat_reward</code></td></tr>
+<tr><td><code class="ic">result_changed</code> penalty</td><td><code class="ic">python fix_training.py --issue result_changed</code></td></tr>
+<tr><td>Episodes very slow</td><td>Smaller TPC-H SF (0.1), or lighter tasks</td></tr>
+<tr><td>Curriculum stuck</td><td><code class="ic">python fix_training.py --issue curriculum_stuck</code></td></tr>
+<tr><td>Syntax errors in actions</td><td><code class="ic">python fix_training.py --issue syntax_error</code></td></tr>
+</tbody></table>
+<h2>Reward is working when</h2>
+<ul>
+<li><code class="ic">reward/mean</code> trending up in W&amp;B</li>
+<li><code class="ic">plan/seq_scans_removed</code> (or similar) &gt; 0 when appropriate</li>
+<li><code class="ic">penalty/result_changed</code> near <strong>zero</strong> when results match</li>
+<li>Episode length / latency moving in the right direction for your run</li>
+<li>Benchmark: example target <strong>Q5</strong> latency under your documented threshold (adjust per SF)</li>
+</ul>
+<h2>wandb metrics to watch</h2>
+<p><code class="ic">reward/mean</code>, speedup-related scalars, <code class="ic">penalty/result_changed</code>, <code class="ic">penalty/syntax_error</code>, plan/scan metrics, <code class="ic">episode_length</code> — names depend on your logging callback (see <code class="ic">monitor_training.py</code> / notebook).</p>
+</body>
+</html>
