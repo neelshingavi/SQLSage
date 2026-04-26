@@ -134,47 +134,47 @@ def _synthetic_series(n_episodes: int = 300, seed: int = 42) -> EpisodeSeries:
     for i in ep:
         if i < 30:
             task_lv[i] = 1.0
-            reward[i] = rng.uniform(-2.0, 2.0) + rng.normal(0.0, 0.25)
-            seq_rm[i] = float(rng.binomial(1, 0.15))
-            syn_err[i] = float(rng.binomial(5, 0.6))
-            res_chg[i] = float(rng.binomial(5, 0.1))
+            reward[i] = rng.uniform(-1.0, 2.5) + rng.normal(0.0, 0.2)
+            seq_rm[i] = float(rng.binomial(1, 0.22))
+            syn_err[i] = float(rng.binomial(4, 0.35))
+            res_chg[i] = float(rng.binomial(3, 0.05))
             ep_len[i] = float(rng.integers(4, 6))
-            speedup[i] = max(0.0, min(1.0, (reward[i] + 2.0) / 12.0))
+            speedup[i] = max(0.0, min(1.0, 0.18 + (reward[i] + 1.0) / 15.0))
         elif i < 100:
             task_lv[i] = 1.0
             t = (i - 30) / 69.0
-            reward[i] = 0.0 + t * 8.0 + rng.normal(0.0, 2.0)
-            seq_rm[i] = t * 1.5 + rng.normal(0.0, 0.2)
+            reward[i] = 1.5 + t * 9.0 + rng.normal(0.0, 1.4)
+            seq_rm[i] = 0.4 + t * 1.7 + rng.normal(0.0, 0.18)
             seq_rm[i] = max(0.0, seq_rm[i])
-            syn_err[i] = max(0.0, 3.0 * np.exp(-2.8 * t) + rng.normal(0.0, 0.35))
-            res_chg[i] = float(rng.binomial(2, 0.05))
-            ep_len[i] = 4.5 - t * 1.5 + rng.normal(0.0, 0.15)
-            speedup[i] = max(0.0, min(1.0, 0.15 + t * 0.55 + rng.normal(0.0, 0.05)))
+            syn_err[i] = max(0.0, 1.8 * np.exp(-3.1 * t) + rng.normal(0.0, 0.2))
+            res_chg[i] = float(rng.binomial(1, 0.03))
+            ep_len[i] = 4.2 - t * 1.6 + rng.normal(0.0, 0.12)
+            speedup[i] = max(0.0, min(1.0, 0.24 + t * 0.53 + rng.normal(0.0, 0.04)))
         elif i < 200:
             task_lv[i] = 2.0
             t = (i - 100) / 99.0
-            reward[i] = 6.0 + t * 8.0 + rng.normal(0.0, 3.0)
-            seq_rm[i] = 1.0 + t * 1.5 + rng.normal(0.0, 0.25)
+            reward[i] = 9.0 + t * 10.0 + rng.normal(0.0, 2.2)
+            seq_rm[i] = 1.5 + t * 1.8 + rng.normal(0.0, 0.22)
             seq_rm[i] = max(0.0, seq_rm[i])
-            syn_err[i] = max(0.0, rng.normal(0.15, 0.25))
-            res_chg[i] = float(rng.binomial(1, 0.04))
-            ep_len[i] = 3.0 - t * 1.0 + rng.normal(0.0, 0.12)
-            speedup[i] = max(0.0, min(1.0, 0.45 + t * 0.35 + rng.normal(0.0, 0.06)))
+            syn_err[i] = max(0.0, rng.normal(0.08, 0.12))
+            res_chg[i] = float(rng.binomial(1, 0.02))
+            ep_len[i] = 2.8 - t * 1.0 + rng.normal(0.0, 0.1)
+            speedup[i] = max(0.0, min(1.0, 0.56 + t * 0.30 + rng.normal(0.0, 0.045)))
         else:
             task_lv[i] = 3.0
             t = (i - 200) / 99.0
-            reward[i] = 12.0 + t * 6.0 + rng.normal(0.0, 4.0)
-            seq_rm[i] = 2.0 + t * 1.0 + rng.normal(0.0, 0.35)
+            reward[i] = 17.0 + t * 8.0 + rng.normal(0.0, 2.4)
+            seq_rm[i] = 2.6 + t * 1.3 + rng.normal(0.0, 0.2)
             seq_rm[i] = max(0.0, seq_rm[i])
-            syn_err[i] = max(0.0, rng.normal(0.08, 0.18))
-            res_chg[i] = float(rng.binomial(1, 0.03))
-            ep_len[i] = 2.0 - 0.5 * t + rng.normal(0.0, 0.1)
-            speedup[i] = max(0.0, min(1.0, 0.65 + t * 0.28 + rng.normal(0.0, 0.05)))
+            syn_err[i] = max(0.0, rng.normal(0.02, 0.05))
+            res_chg[i] = float(rng.binomial(1, 0.01))
+            ep_len[i] = 1.9 - 0.55 * t + rng.normal(0.0, 0.08)
+            speedup[i] = max(0.0, min(1.0, 0.78 + t * 0.18 + rng.normal(0.0, 0.03)))
 
     ep_len = np.clip(np.round(ep_len), 1, 5).astype(float)
     reward_raw = reward + rng.normal(0.0, 0.45, size=n_episodes)
-    # Rare anti-cheat spike for dashboard annotation demo (episode 61).
-    res_chg[61] = max(res_chg[61], 5.0)
+    # Keep one rare spike so anti-cheat trend is visible.
+    res_chg[61] = max(res_chg[61], 2.0)
     return EpisodeSeries(
         episodes=ep,
         reward_raw=reward_raw,
