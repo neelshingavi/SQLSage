@@ -95,10 +95,11 @@ def run_training(progress_callback: ProgressCallback = None) -> dict:
     merged_dir = os.environ.get("SQLSAGE_MERGED_DIR", "sqlsage-trained-merged")
     wandb_project = os.environ.get("WANDB_PROJECT", "sqlsage-grpo")
 
+    max_seq = int(os.environ.get("SQLSAGE_MAX_SEQ_LENGTH", "2048"))
     _emit_progress(progress_callback, 0.12, f"Loading model: {model_name}")
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=model_name,
-        max_seq_length=2048,
+        max_seq_length=max_seq,
         load_in_4bit=True,
     )
     model = FastLanguageModel.get_peft_model(
@@ -132,7 +133,14 @@ def run_training(progress_callback: ProgressCallback = None) -> dict:
     train_dataset = Dataset.from_list(prompt_rows)
 
     _emit_progress(progress_callback, 0.30, "Initializing Weights & Biases")
-    wandb.init(project=wandb_project, name=os.environ.get("WANDB_RUN_NAME", "sqlsage-grpo-hf-space"))
+    w_entity = os.environ.get("WANDB_ENTITY", "").strip()
+    w_init: Dict[str, Any] = {
+        "project": wandb_project,
+        "name": os.environ.get("WANDB_RUN_NAME", "sqlsage-grpo-hf-space"),
+    }
+    if w_entity:
+        w_init["entity"] = w_entity
+    wandb.init(**w_init)
 
     def reward_from_env(prompts: List[str], completions: List[str], **_: Any) -> List[float]:
         """Compute GRPO reward by stepping the deployed SQLSage env."""
@@ -163,14 +171,20 @@ def run_training(progress_callback: ProgressCallback = None) -> dict:
     _emit_progress(progress_callback, 0.40, "Building GRPO trainer")
     training_args = GRPOConfig(
         output_dir=output_dir,
-        per_device_train_batch_size=2,
-        gradient_accumulation_steps=8,
-        learning_rate=1e-5,
-        max_completion_length=512,
-        num_generations=8,
-        temperature=0.9,
-        kl_coeff=0.05,
-        num_train_epochs=3,
+        per_device_train_batch_size=int(
+            os.environ.get("SQLSAGE_PER_DEVICE_TRAIN_BATCH_SIZE", "2")
+        ),
+        gradient_accumulation_steps=int(
+            os.environ.get("SQLSAGE_GRADIENT_ACCUMULATION_STEPS", "8")
+        ),
+        learning_rate=float(os.environ.get("SQLSAGE_LEARNING_RATE", "1e-5")),
+        max_completion_length=int(
+            os.environ.get("SQLSAGE_MAX_COMPLETION_LENGTH", "512")
+        ),
+        num_generations=int(os.environ.get("SQLSAGE_NUM_GENERATIONS", "8")),
+        temperature=float(os.environ.get("SQLSAGE_GRPO_TEMPERATURE", "0.9")),
+        kl_coeff=float(os.environ.get("SQLSAGE_KL_COEFF", "0.05")),
+        num_train_epochs=int(os.environ.get("SQLSAGE_NUM_TRAIN_EPOCHS", "3")),
         report_to="wandb",
     )
 

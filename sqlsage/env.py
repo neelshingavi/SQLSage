@@ -3,9 +3,11 @@
 import hashlib
 import json
 import os
+import random
 import signal
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import psycopg2
@@ -313,7 +315,33 @@ class SQLSageEnv(Environment):
 
         Returns observation as dict (JSON-serializable).
         """
-        task = self._get_task(level=1, seed=seed)
+        # SQLSage-FIX: curriculum-gate (see fix_training.py / sqlsage-curriculum.json)
+        level: int
+        cpath = Path(__file__).resolve().parent.parent / "sqlsage-curriculum.json"
+        if cpath.is_file():
+            try:
+                st = json.loads(cpath.read_text())
+            except (json.JSONDecodeError, OSError, TypeError):
+                st = {}
+            if st.get("gating"):
+                n = int(st.get("l1_count", 0) or 0) + 1
+                m = int(st.get("l1_min", 200) or 200)
+                st["l1_count"] = n
+                try:
+                    cpath.write_text(json.dumps(st, indent=2) + "\n")
+                except OSError:
+                    pass
+                if n <= m:
+                    level = 1
+                else:
+                    rng = random.Random(int(seed) if seed is not None else int(time.time()) % 2**31)
+                    ul = int(st.get("unlocked_max_level", 3) or 3)
+                    level = rng.randint(1, min(3, max(1, ul)))
+            else:
+                level = 1
+        else:
+            level = 1
+        task = self._get_task(level=level, seed=seed)
         self.target_ms = float(task.target_ms)
         self.best_query = task.query
         self.best_ms = float("inf")

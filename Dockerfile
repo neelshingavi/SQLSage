@@ -1,5 +1,7 @@
 # Single image: PostgreSQL 16 + FastAPI (OpenEnv) for Hugging Face Spaces / demos.
-FROM postgres:16-bookworm
+# linux/amd64: matches HF Space GPU; requirements.txt uses CUDA 12.4 torch wheels
+# (Apple Silicon: `docker build --platform=linux/amd64` so pip can resolve +cu124).
+FROM --platform=linux/amd64 postgres:16-bookworm
 
 USER root
 RUN apt-get update \
@@ -8,7 +10,9 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY requirements.txt .
-RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
+# Upgrade pip so legacy resolver quirks and long backtracks on large dep trees are less likely.
+RUN pip3 install -U --no-cache-dir --break-system-packages pip setuptools wheel \
+    && pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 
 COPY . .
 COPY docker/entrypoint-sqlsage.sh /usr/local/bin/entrypoint-sqlsage.sh

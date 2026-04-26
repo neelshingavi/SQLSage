@@ -74,6 +74,12 @@ app = create_fastapi_app(
 )
 
 
+@app.get("/health")
+def health() -> dict[str, str]:
+    """Liveness probe for Colab / load balancers (must return 200 when Space is up)."""
+    return {"status": "ok", "service": "sqlsage-openenv"}
+
+
 def _now_iso() -> str:
     """Return UTC timestamp string for status payloads."""
     return datetime.now(tz=timezone.utc).isoformat()

@@ -1,12 +1,31 @@
-fastapi
-uvicorn
-psycopg2-binary
-pydantic
+# Pinned for HF Space Docker: Python 3.11, Linux x86_64, CUDA 12.4 (T4+).
+# --extra-index-url supplies torch/torchvision; explicit pins avoid long pip backtracking.
+--extra-index-url https://download.pytorch.org/whl/cu124
+
+# --- Space server ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+psycopg2-binary==2.9.10
+pydantic>=2.0
 openenv-core>=0.2.0
-requests
-wandb
-datasets
-accelerate
-transformers
-trl
-unsloth
+requests>=2.32.0
+
+# --- PyTorch (CUDA). Must stay <2.11 and match unsloth 2026.4.x. ---
+torch==2.5.1+cu124
+torchvision==0.20.1+cu124
+
+# --- Unsloth + GRPO (unsloth 2026.4.8 allows trl<=0.24, datasets<4.4) ---
+unsloth==2026.4.8
+unsloth_zoo==2026.4.9
+xformers==0.0.28.post2
+bitsandbytes==0.47.0
+trl==0.24.0
+transformers==4.57.3
+tokenizers==0.22.1
+accelerate==1.4.0
+peft==0.18.0
+datasets==4.3.0
+huggingface-hub==0.36.0
+safetensors==0.4.3
+hf_transfer
+wandb==0.19.9
