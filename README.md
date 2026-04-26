@@ -163,6 +163,18 @@ From `results/baseline_vs_trained.md`:
 - Syntax penalties/episode: `0.00`
 - Result-changed penalties/episode: `0.00`
 
+### Learning Progress Table (Real Metrics)
+
+| Signal | Baseline | Trained | Percent Change |
+| --- | ---: | ---: | ---: |
+| Mean episode return | 2.32 | 5.10 | +119.83% |
+| Mean final query latency (ms) | 0.60 | 0.50 | -16.67% |
+| Mean speedup ratio | 0.294 | 0.284 | -3.40% |
+| Syntax penalties / episode | 0.00 | 0.00 | 0.00% |
+| Result-changed penalties / episode | 0.00 | 0.00 | 0.00% |
+
+Note: this table is computed from the currently committed baseline-vs-trained report. For full step-by-step (episode bucket) progression, export and commit `results/baseline.jsonl` and `results/trained.jsonl`.
+
 W&B evidence:
 
 - [rollout-http / w9lorr6y](https://wandb.ai/shingavineel-bharati-vidyapeeth/sqlsage-grpo/runs/w9lorr6y)
