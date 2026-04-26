@@ -74,7 +74,9 @@ POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5433 uvicorn sqlsage.app:app --reload --po
 
 ## Single-container image (Postgres + API)
 
-The root `Dockerfile` starts PostgreSQL then `uvicorn` (for Hugging Face Spaces). The entrypoint listens on **`$PORT`** (Hugging Face defaults this to **7860**). For a local `docker run` without `PORT`, the same default applies—set `-e PORT=8000 -p 8000:8000` if you want port 8000. Load TPC-H into the data directory separately or bake init SQL if needed.
+The root `Dockerfile` starts PostgreSQL then `uvicorn` (for Hugging Face Spaces). The entrypoint listens on **`$PORT`** (Hugging Face defaults this to **7860**). For a local `docker run` without `PORT`, the same default applies—set `-e PORT=8000 -p 8000:8000` if you want port 8000.
+
+On startup, the image now auto-creates the core TPC-H tables (`sql/bootstrap_tpch_schema.sql`) so `/reset` does not fail with missing-relation errors on fresh volumes. This is schema-only bootstrap; for realistic rewards and full curriculum behavior, load actual TPC-H data separately. Set `SQLSAGE_BOOTSTRAP_TPCH_SCHEMA=0` to skip auto bootstrap.
 
 ## Tests
 

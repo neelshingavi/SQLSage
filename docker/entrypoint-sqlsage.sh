@@ -10,8 +10,22 @@ done
 
 export POSTGRES_HOST="${POSTGRES_HOST:-127.0.0.1}"
 export POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+export SQLSAGE_BOOTSTRAP_TPCH_SCHEMA="${SQLSAGE_BOOTSTRAP_TPCH_SCHEMA:-1}"
 
 cd /app
+# Fresh HF/Postgres volumes start empty. Create TPC-H tables so /reset does not crash on
+# missing relations; real data loading can still happen separately.
+if [[ "${SQLSAGE_BOOTSTRAP_TPCH_SCHEMA}" == "1" ]]; then
+  export PGPASSWORD="${POSTGRES_PASSWORD:-sqlsage}"
+  psql \
+    -h "${POSTGRES_HOST}" \
+    -p "${POSTGRES_PORT}" \
+    -U "${POSTGRES_USER:-postgres}" \
+    -d "${POSTGRES_DB:-sqlsage}" \
+    -v ON_ERROR_STOP=1 \
+    -f /app/sql/bootstrap_tpch_schema.sql
+fi
+
 # Hugging Face Spaces set PORT (default 7860). Listening on 8000 when PORT is unset often causes
 # external HTTPS to hang/time out while logs still show a healthy Uvicorn process.
 exec uvicorn sqlsage.app:app --host 0.0.0.0 --port "${PORT:-7860}"
