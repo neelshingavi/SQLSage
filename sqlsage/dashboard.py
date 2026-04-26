@@ -6,7 +6,8 @@ Live terminal dashboard for the SQLSage hackathon (Rich).
   python -m sqlsage.dashboard --team
   python -m sqlsage.dashboard --person 2 --live --refresh 30
 
-Env: ``SQLSAGE_HF_RESET_URL`` — HF /reset URL for the hour-8 check (else NOT CHECKED).
+Env: ``SQLSAGE_HF_RESET_URL`` (full ``.../reset`` or Space base URL) or, if unset,
+``SQLSAGE_HF_SPACE_URL`` / ``SQLSAGE_ENV_URL`` — used to ``POST`` OpenEnv ``/reset`` for the hour-8 check (else NOT CHECKED).
 """
 
 from __future__ import annotations
@@ -39,7 +40,7 @@ MILESTONES: list[dict[str, Any]] = [
         "hour": 8,
         "gate": "Environment deployed to HF Spaces",
         "owner": "Person 1",
-        "check_command": "curl https://your-hf-username-sqlsage-env.hf.space/reset",
+        "check_command": 'curl -sS -X POST -H "Content-Type: application/json" -d \'{}\' https://your-hf-username-sqlsage-env.hf.space/reset',
         "if_missed": "CRISIS: Stop all other work. Fix deployment NOW.",
         "verify_fn": "check_hf_space_live()",
     },
@@ -104,9 +105,9 @@ PERSON_TASKS: dict[int, list[dict[str, Any]]] = {
             "task": "Implement env.py: reset(), step(), state(). Implement explain_parser.py.",
             "commands": [
                 "uvicorn sqlsage.app:app --reload --port 8000",
-                "curl http://localhost:8000/reset",
+                'curl -sS -X POST -H "Content-Type: application/json" -d \'{}\' http://localhost:8000/reset',
             ],
-            "done_when": "curl /reset returns valid JSON observation",
+            "done_when": "POST /reset returns valid JSON observation",
         },
         {
             "hours": "4-6",
@@ -124,7 +125,7 @@ PERSON_TASKS: dict[int, list[dict[str, Any]]] = {
                 "psql -U postgres -d sqlsage -c 'DROP INDEX IF EXISTS idx_orders_status;'",
                 "psql -U postgres -d sqlsage -c 'DROP INDEX IF EXISTS idx_lineitem_shipdate;'",
                 "openenv push your-hf-username/sqlsage-env",
-                "curl https://your-hf-username-sqlsage-env.hf.space/reset",
+                'curl -sS -X POST -H "Content-Type: application/json" -d \'{}\' https://your-hf-username-sqlsage-env.hf.space/reset',
             ],
             "done_when": "Remote env.reset() works. URL shared with Person 3.",
         },
@@ -151,7 +152,7 @@ PERSON_TASKS: dict[int, list[dict[str, Any]]] = {
             "task": "Write README environment section. Test HF Space UI.",
             "commands": [
                 "openenv push your-hf-username/sqlsage-env",
-                "curl https://your-hf-username-sqlsage-env.hf.space/reset",
+                'curl -sS -X POST -H "Content-Type: application/json" -d \'{}\' https://your-hf-username-sqlsage-env.hf.space/reset',
             ],
             "done_when": "README done. Judges can run env.reset()",
         },
@@ -362,19 +363,25 @@ def _project_root() -> str:
 
 
 def check_hf_space_live() -> Optional[bool]:
-    url = os.environ.get("SQLSAGE_HF_RESET_URL", "").strip()
-    if not url:
+    from sqlsage.status_checker import _reset_url
+
+    raw = (os.environ.get("SQLSAGE_HF_RESET_URL") or "").strip()
+    if not raw:
+        raw = (os.environ.get("SQLSAGE_HF_SPACE_URL") or os.environ.get("SQLSAGE_ENV_URL") or "").strip()
+    if not raw:
         return None
+    endpoint = _reset_url(raw)
     try:
         import requests
     except ImportError:
         return None
     try:
-        r = requests.get(
-            url,
+        r = requests.post(
+            endpoint,
+            json={},
             timeout=float(os.environ.get("SQLSAGE_DASHBOARD_HTTP_TIMEOUT", "5")),
         )
-        return 200 <= r.status_code < 500
+        return r.status_code == 200
     except Exception:
         return None
 

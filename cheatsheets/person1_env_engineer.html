@@ -50,13 +50,13 @@ br { line-height: 0.2em; }
 <tr><td><code class="ic">uvicorn sqlsage.app:app --reload --port 8000</code></td><td>Runs environment locally (set <code class="ic">POSTGRES_HOST</code> / <code class="ic">POSTGRES_PORT</code>)</td></tr>
 <tr><td><code class="ic">openenv push your-username/sqlsage-env</code></td><td>Deploys to HF Spaces</td></tr>
 <tr><td><code class="ic">docker run --name sqlsage-pg -e POSTGRES_PASSWORD=sqlsage -e POSTGRES_DB=sqlsage -p 5432:5432 -d postgres:16</code></td><td>Single-container Postgres 16 (alt. to compose)</td></tr>
-<tr><td><code class="ic">curl http://localhost:8000/reset</code></td><td>Tests reset endpoint (local)</td></tr>
-<tr><td><code class="ic">curl -sS &quot;$SQLSAGE_ENV_URL/reset&quot;</code></td><td>Tests deployed Space (set URL from <code class="ic">.env</code>)</td></tr>
+<tr><td><code class="ic">curl -sS -X POST -H &quot;Content-Type: application/json&quot; -d &#x27;{}&#x27; http://localhost:8000/reset</code></td><td>Tests <strong>POST</strong> <code class="ic">/reset</code> locally (OpenEnv has no <code class="ic">GET /reset</code>)</td></tr>
+<tr><td><code class="ic">curl -sS -X POST -H &quot;Content-Type: application/json&quot; -d &#x27;{}&#x27; &quot;$SQLSAGE_ENV_URL/reset&quot;</code></td><td>Same against deployed Space (set URL in <code class="ic">.env</code>)</td></tr>
 <tr><td><code class="ic">psql &quot;host=127.0.0.1 port=5433 user=postgres dbname=sqlsage password=sqlsage&quot; -c &#x27;SELECT version();&#x27;</code></td><td>Verify DB (project default port <strong>5433</strong>)</td></tr>
 <tr><td><code class="ic">openenv validate</code></td><td>OpenEnv project validation</td></tr>
 <tr><td><code class="ic">python -m sqlsage.run p1-serve</code></td><td><strong>Alias</strong> → uvicorn (from <code class="ic">sqlsage.run</code>)</td></tr>
-<tr><td><code class="ic">python -m sqlsage.run p1-test</code></td><td><strong>Alias</strong> → curl local <code class="ic">/reset</code> \</td><td><code class="ic">json.tool</code></td></tr>
-<tr><td><code class="ic">python -m sqlsage.run p1-push</code> / <code class="ic">p1-deploy</code></td><td><strong>Alias</strong> → push + optional HF curl</td></tr>
+<tr><td><code class="ic">python -m sqlsage.run p1-test</code></td><td><strong>Alias</strong> → <code class="ic">curl</code> <strong>POST</strong> local <code class="ic">/reset</code> \</td><td><code class="ic">json.tool</code></td></tr>
+<tr><td><code class="ic">python -m sqlsage.run p1-push</code> / <code class="ic">p1-deploy</code></td><td><strong>Alias</strong> → push + optional HF <strong>POST</strong> <code class="ic">/reset</code></td></tr>
 </tbody></table>
 <h2>TPC-H Data Load</h2>
 <table class="cheat">
@@ -83,7 +83,7 @@ psql -U postgres -d sqlsage -c &quot;DROP INDEX IF EXISTS idx_lineitem_shipdate;
 <h2>Troubleshooting</h2>
 <table class="cheat">
 <thead><tr><th>Symptom</th><th>Fix</th></tr></thead><tbody>
-<tr><td><code class="ic">curl /reset</code> returns 500</td><td><code class="ic">docker ps</code> / <code class="ic">docker compose ps</code> — DB + API up; check logs</td></tr>
+<tr><td><code class="ic">POST /reset</code> returns 500</td><td><code class="ic">docker ps</code> / <code class="ic">docker compose ps</code> — DB + API up; check logs</td></tr>
 <tr><td>HF Space build failing</td><td><code class="ic">Dockerfile</code> + entrypoint: Postgres as service, <code class="ic">uvicorn</code> on <code class="ic">$PORT</code> (7860 on HF)</td></tr>
 <tr><td>TPC-H load too long</td><td>Use SF=0.1 for dev; SF=1 for final demo; raise <code class="ic">SQLSAGE_TIMEOUT_MS</code> if needed</td></tr>
 <tr><td>Intermittent 500 under load</td><td>OpenEnv uses a <strong>lock</strong> for reset/step; avoid parallel <code class="ic">step</code> to same process</td></tr>
@@ -91,7 +91,7 @@ psql -U postgres -d sqlsage -c &quot;DROP INDEX IF EXISTS idx_lineitem_shipdate;
 <h2>Hour Gates</h2>
 <ul>
 <li>Hour 1: psql connects ✓</li>
-<li>Hour 4: <code class="ic">curl /reset</code> returns JSON ✓</li>
+<li>Hour 4: <code class="ic">POST /reset</code> returns JSON ✓</li>
 <li>Hour 6: <code class="ic">step()</code> returns <code class="ic">{reward, done, state}</code> ✓</li>
 <li>Hour 8: <strong>HF Space live</strong> — <strong>SHARE URL WITH TEAM</strong> (<code class="ic">SQLSAGE_ENV_URL</code> in Colab) ✓</li>
 </ul>

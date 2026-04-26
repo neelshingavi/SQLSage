@@ -204,7 +204,11 @@ def cmd_p1_push() -> int:
 
 
 def cmd_p1_test() -> int:
-    cmd = f'curl -sS "http://localhost:8000/reset" | {sys.executable} -m json.tool'
+    # OpenEnv exposes POST /reset only (JSON body may be {}).
+    cmd = (
+        'curl -sS -X POST -H "Content-Type: application/json" -d "{}" '
+        f'"http://localhost:8000/reset" | {sys.executable} -m json.tool'
+    )
     return _run("p1-test", cmd, shell=True)
 
 
@@ -220,8 +224,11 @@ def cmd_p1_deploy() -> int:
     u = f"{b}/reset" if not b.endswith("reset") else b
     if not u.startswith("http"):
         u = "https://" + u.lstrip("/")
-    cmd = f'curl -sS {shlex.quote(u)} | {shlex.quote(sys.executable)} -m json.tool'
-    return _run("p1-deploy  (then curl HF /reset + json.tool)", cmd, shell=True)
+    cmd = (
+        "curl -sS -X POST -H \"Content-Type: application/json\" -d "
+        f"\"{{}}\" {shlex.quote(u)} | {shlex.quote(sys.executable)} -m json.tool"
+    )
+    return _run("p1-deploy  (then curl POST HF /reset + json.tool)", cmd, shell=True)
 
 
 # --- P2 -------------------------------------------------------------------
@@ -385,8 +392,8 @@ def cmd_p3_verify() -> int:
             test = f"{b}/reset" if not b.lower().rstrip("/").endswith("reset") else b
             if not test.startswith("http"):
                 test = "https://" + test.lstrip("/")
-            r = requests.get(test, timeout=5)
-            ok1 = 200 <= r.status_code < 500
+            r = requests.post(test, json={}, timeout=5)
+            ok1 = r.status_code == 200
         except Exception:
             ok1 = False
     if not u:
@@ -400,7 +407,7 @@ def cmd_p3_verify() -> int:
     else:
         t1 = "FAIL"
     c.print(
-        f"[1]  [white]{t1:4}  HF /reset check (if URL in .env) — 200–499 = ok[/]"
+        f"[1]  [white]{t1:4}  HF POST /reset (if URL in .env) — HTTP 200 = ok[/]"
     )
     p = ROOT / "results" / "benchmark_results.json"
     ok2 = p.is_file() and p.stat().st_size > 4

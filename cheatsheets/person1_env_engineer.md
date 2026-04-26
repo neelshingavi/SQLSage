@@ -9,13 +9,13 @@
 | `uvicorn sqlsage.app:app --reload --port 8000` | Runs environment locally (set `POSTGRES_HOST` / `POSTGRES_PORT`) |
 | `openenv push your-username/sqlsage-env` | Deploys to HF Spaces |
 | `docker run --name sqlsage-pg -e POSTGRES_PASSWORD=sqlsage -e POSTGRES_DB=sqlsage -p 5432:5432 -d postgres:16` | Single-container Postgres 16 (alt. to compose) |
-| `curl http://localhost:8000/reset` | Tests reset endpoint (local) |
-| `curl -sS "$SQLSAGE_ENV_URL/reset"` | Tests deployed Space (set URL from `.env`) |
+| `curl -sS -X POST -H "Content-Type: application/json" -d '{}' http://localhost:8000/reset` | Tests **POST** `/reset` locally (OpenEnv has no `GET /reset`) |
+| `curl -sS -X POST -H "Content-Type: application/json" -d '{}' "$SQLSAGE_ENV_URL/reset"` | Same against deployed Space (set URL in `.env`) |
 | `psql "host=127.0.0.1 port=5433 user=postgres dbname=sqlsage password=sqlsage" -c 'SELECT version();'` | Verify DB (project default port **5433**) |
 | `openenv validate` | OpenEnv project validation |
 | `python -m sqlsage.run p1-serve` | **Alias** → uvicorn (from `sqlsage.run`) |
-| `python -m sqlsage.run p1-test` | **Alias** → curl local `/reset` \| `json.tool` |
-| `python -m sqlsage.run p1-push` / `p1-deploy` | **Alias** → push + optional HF curl |
+| `python -m sqlsage.run p1-test` | **Alias** → `curl` **POST** local `/reset` \| `json.tool` |
+| `python -m sqlsage.run p1-push` / `p1-deploy` | **Alias** → push + optional HF **POST** `/reset` |
 
 ## TPC-H Data Load
 | Command | What it does |
@@ -45,13 +45,13 @@ psql -U postgres -d sqlsage -c "DROP INDEX IF EXISTS idx_lineitem_shipdate;"
 ## Troubleshooting
 | Symptom | Fix |
 |---------|-----|
-| `curl /reset` returns 500 | `docker ps` / `docker compose ps` — DB + API up; check logs |
+| `POST /reset` returns 500 | `docker ps` / `docker compose ps` — DB + API up; check logs |
 | HF Space build failing | `Dockerfile` + entrypoint: Postgres as service, `uvicorn` on `$PORT` (7860 on HF) |
 | TPC-H load too long | Use SF=0.1 for dev; SF=1 for final demo; raise `SQLSAGE_TIMEOUT_MS` if needed |
 | Intermittent 500 under load | OpenEnv uses a **lock** for reset/step; avoid parallel `step` to same process |
 
 ## Hour Gates
 - Hour 1: psql connects ✓
-- Hour 4: `curl /reset` returns JSON ✓
+- Hour 4: `POST /reset` returns JSON ✓
 - Hour 6: `step()` returns `{reward, done, state}` ✓
 - Hour 8: **HF Space live** — **SHARE URL WITH TEAM** (`SQLSAGE_ENV_URL` in Colab) ✓

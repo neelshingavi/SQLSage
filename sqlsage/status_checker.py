@@ -70,8 +70,10 @@ def _reset_url(hf_space_url: str) -> str:
 
 def check_hf_space_live(hf_space_url: str) -> dict[str, Any]:
     """
-    GET {hf_space_url}/reset with 5s timeout.
-    Returns: {"ok": bool, "latency_ms": int, "error": None|str, ...}
+    POST OpenEnv ``/reset`` (JSON body ``{}``) at ``_reset_url(hf_space_url)`` with a short timeout.
+
+    OpenEnv registers only ``POST /reset``; ``GET`` would return 405. Success requires HTTP 200.
+    Returns: ``{"ok": bool, "latency_ms": int, "http_status": int|None, "error": None|str}``
     """
     t0 = time.perf_counter()
     try:
@@ -80,6 +82,7 @@ def check_hf_space_live(hf_space_url: str) -> dict[str, Any]:
             return {
                 "ok": False,
                 "latency_ms": 0,
+                "http_status": None,
                 "error": "empty hf_space_url",
             }
         try:
@@ -88,18 +91,21 @@ def check_hf_space_live(hf_space_url: str) -> dict[str, Any]:
             return {
                 "ok": False,
                 "latency_ms": 0,
+                "http_status": None,
                 "error": f"requests not available: {e}",
             }
         full = _reset_url(u)
-        r = requests.get(
+        r = requests.post(
             full,
+            json={},
             timeout=float(os.environ.get("SQLSAGE_DASHBOARD_HTTP_TIMEOUT", "5")),
         )
         ms = int((time.perf_counter() - t0) * 1000)
-        ok = 200 <= r.status_code < 500
+        ok = r.status_code == 200
         return {
             "ok": ok,
             "latency_ms": ms,
+            "http_status": r.status_code,
             "error": (None if ok else f"HTTP {r.status_code}"),
         }
     except Exception as e:  # noqa: BLE001 — intentional graceful reporting
@@ -107,6 +113,7 @@ def check_hf_space_live(hf_space_url: str) -> dict[str, Any]:
         return {
             "ok": False,
             "latency_ms": ms,
+            "http_status": None,
             "error": str(e),
         }
 

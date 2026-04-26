@@ -2,7 +2,7 @@
 """
 Person 3 (hours 20–22): upload a saved model directory to the Hugging Face Hub.
 
-Auth: set HF_TOKEN (recommended) or run `huggingface-cli login` first.
+Auth: ``HF_TOKEN``, or a token from ``huggingface-cli login`` / ``hf auth login`` (via ``huggingface_hub``).
 
 Example:
   python scripts/push_model_to_hub.py --folder ./sqlsage-grpo/merged --repo-id your-org/sqlsage-trained
@@ -11,8 +11,8 @@ Example:
 from __future__ import annotations
 
 import argparse
-import os
 import sys
+from pathlib import Path
 
 
 def main() -> int:
@@ -22,21 +22,33 @@ def main() -> int:
     parser.add_argument("--private", action="store_true", help="Create/use a private repo")
     args = parser.parse_args()
 
-    token = os.environ.get("HF_TOKEN", "").strip()
-    if not token:
-        print("Set HF_TOKEN or run `huggingface-cli login` before pushing.", file=sys.stderr)
+    folder = Path(args.folder)
+    if not folder.is_dir():
+        print(f"Not a directory: {args.folder}", file=sys.stderr)
+        return 1
+    if not (folder / "config.json").is_file():
+        print(
+            f"Missing {folder / 'config.json'} — not a standard HF model directory.",
+            file=sys.stderr,
+        )
         return 1
 
     try:
         from huggingface_hub import HfApi, create_repo
+        from huggingface_hub.utils import get_token
     except ImportError:
         print("pip install huggingface_hub", file=sys.stderr)
+        return 1
+
+    token = get_token()
+    if not token:
+        print("Set HF_TOKEN or run `huggingface-cli login` (or `hf auth login`) before pushing.", file=sys.stderr)
         return 1
 
     api = HfApi(token=token)
     create_repo(repo_id=args.repo_id, private=args.private, exist_ok=True, token=token)
     api.upload_folder(
-        folder_path=args.folder,
+        folder_path=str(folder.resolve()),
         repo_id=args.repo_id,
         repo_type="model",
         token=token,

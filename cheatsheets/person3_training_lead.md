@@ -4,7 +4,7 @@
 ## Colab Setup Sequence
 1. Runtime → Change runtime type → **A100** GPU
 2. `!pip install 'unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git' -q`
-3. `!pip install trl openenv wandb psycopg2-binary -q` — add `torch` as needed
+3. `!pip install trl openenv-core wandb psycopg2-binary -q` — add `torch` as needed (CLI: `openenv` from `openenv-core`)
 4. `import torch; print(torch.cuda.get_device_name(0))` — must be A100 for Colab template
 5. `pip install -e '.[training]'` (local) per README for `scripts/rollout_wandb.py`
 
