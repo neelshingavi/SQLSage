@@ -134,6 +134,8 @@ def _synthetic_series(n_episodes: int = 300, seed: int = 42) -> EpisodeSeries:
 
 def _try_load_wandb(n_episodes: int = 300) -> EpisodeSeries | None:
     entity = os.environ.get("WANDB_ENTITY", "").strip()
+    project = os.environ.get("WANDB_PROJECT", "sqlsage-grpo").strip() or "sqlsage-grpo"
+    debug = os.environ.get("SQLSAGE_PLOTS_DEBUG", "").strip() in {"1", "true", "TRUE", "yes", "YES"}
     if not entity:
         if sys.stdin.isatty():
             try:
@@ -148,9 +150,11 @@ def _try_load_wandb(n_episodes: int = 300) -> EpisodeSeries | None:
         import wandb  # noqa: WPS433 — optional dependency
 
         api = wandb.Api(timeout=60)
-        path = f"{entity}/sqlsage-grpo"
+        path = f"{entity}/{project}"
         runs = api.runs(path)
         if not runs:
+            if debug:
+                print(f"[plots] No wandb runs found for {path}", flush=True)
             return None
         run = max(runs, key=lambda r: getattr(r, "created_at", "") or "")
 
@@ -168,6 +172,8 @@ def _try_load_wandb(n_episodes: int = 300) -> EpisodeSeries | None:
             rows.append(dict(row))
 
         if not rows:
+            if debug:
+                print(f"[plots] Run found but scan_history empty for {path}", flush=True)
             return None
 
         def col(name: str, default: float = 0.0) -> np.ndarray:
@@ -227,7 +233,9 @@ def _try_load_wandb(n_episodes: int = 300) -> EpisodeSeries | None:
             speedup_ratio=speedup,
             source="wandb",
         )
-    except Exception:
+    except Exception as exc:
+        if debug:
+            print(f"[plots] wandb load failed for {entity}/{project}: {exc}", flush=True)
         return None
 
 

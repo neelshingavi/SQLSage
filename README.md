@@ -96,3 +96,5 @@ openenv validate
 ## Training (Person 3)
 
 Colab GRPO checklist, wandb rollout script, Hub upload, and baseline table: **`docs/PERSON3_PHASE8_MANUAL.md`**. Colab skeleton: **`notebooks/sqlsage_grpo_colab.ipynb`**. Quick smoke: `pip install -e '.[training]'` then `python scripts/rollout_wandb.py --episodes 5`.
+
+Phase 8 completion runbook (all roles): **`docs/PHASE8_CLOSEOUT_CHECKLIST.md`**.
