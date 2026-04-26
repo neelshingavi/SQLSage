@@ -14,7 +14,6 @@ from openenv.core.env_server.http_server import create_fastapi_app
 
 from .openenv_bridge import SQLSageOpenEnvironment
 from .openenv_types import SQLSageServerObservation, SQLSageStepAction
-from train import run_training
 
 _singleton: SQLSageOpenEnvironment | None = None
 _training_lock = threading.Lock()
@@ -103,6 +102,8 @@ def _run_training_task() -> None:
         _training_status["result"] = None
         _training_status["error"] = None
     try:
+        from train import run_training
+
         result = run_training(progress_callback=_progress_callback)
         with _training_lock:
             _training_status["result"] = result
