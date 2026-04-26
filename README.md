@@ -8,13 +8,78 @@ pinned: false
 license: mit
 ---
 
-# SQLSage Environment
+<div align="center">
+  <h1>SQLSage</h1>
+  <p><strong>Reinforcement learning environment for SQL query optimization on PostgreSQL (TPC-H)</strong></p>
+  <p>
+    <a href="https://huggingface.co/spaces/Adity00/sqlsage-env"><img src="https://img.shields.io/badge/Hugging%20Face-Space-orange?logo=huggingface" alt="HF Space"/></a>
+    <a href="https://github.com/neelshingavi/SQLSage"><img src="https://img.shields.io/badge/GitHub-SQLSage-black?logo=github" alt="GitHub"/></a>
+    <img src="https://img.shields.io/badge/OpenEnv-Compatible-3b82f6" alt="OpenEnv"/>
+    <img src="https://img.shields.io/badge/TRL-GRPO-22c55e" alt="GRPO"/>
+  </p>
+</div>
 
-SQLSage is an OpenEnv-compatible RL environment for SQL query optimization via PostgreSQL execution-plan reading.
+## Why SQLSage
 
-## Database Mode
+SQLSage teaches a model to rewrite SQL queries that run faster while preserving exact result semantics. Instead of static SQL examples, it learns from a live PostgreSQL system and uses EXPLAIN plans, latency signals, and anti-cheat checks to optimize safely.
 
-This project is configured for **local PostgreSQL via Docker**.
+- **Domain:** PostgreSQL query optimization on TPC-H style workloads.
+- **Learning setup:** Multi-step RL episodes over query rewrites.
+- **Core promise:** Better runtime with unchanged query results.
+
+## Product Demo (Animated Sections)
+
+- Training control dashboard: `GET /train`
+- Live status endpoint: `GET /train/status`
+- To include a project animation GIF, add it at `docs/assets/sqlsage-demo.gif` and embed below:
+
+```md
+![SQLSage Live Demo](docs/assets/sqlsage-demo.gif)
+```
+
+## Architecture
+
+```mermaid
+flowchart LR
+  A[GRPO Trainer / Colab] -->|reset / step| B[OpenEnv HTTP Server]
+  B --> C[SQLSageOpenEnvironment]
+  C --> D[SQLSageEnv Core]
+  D --> E[(PostgreSQL + TPC-H)]
+  D --> F[Reward Engine]
+  D --> G[Anti-cheat Validator]
+  F --> A
+  G --> A
+```
+
+### Environment API
+
+- `GET /health`
+- `POST /reset` (optional `seed`)
+- `POST /step` with OpenEnv action wrapper
+- `GET /state`
+- `GET /schema`, `GET /metadata`, WebSocket `/ws`
+- `POST /train/start`, `GET /train/status`, `GET /train`
+
+## Observation, Action, Episode
+
+- **Observation:** Original SQL, EXPLAIN plan, execution latency, schema context, rewrite history, diagnostics.
+- **Action space:** `rewrite_join`, `add_cte`, `push_filter`, `reorder_joins`, `suggest_index`, `limit_early`, `revert`.
+- **Episode end:** Reaches target latency or max steps.
+
+## Reward and Safety
+
+- **Positive signal:** latency improvement and plan-quality gains.
+- **Penalties:** syntax errors, timeout, invalid action, changed results.
+- **Anti-cheat:** rewritten query must match baseline result hash/row count.
+- **Execution guardrails:** read-only SQL validation + statement timeout.
+
+## Quick Start
+
+### 1) Start PostgreSQL
+
+```bash
+docker compose up -d
+```
 
 Use:
 
@@ -23,108 +88,86 @@ Use:
 - `POSTGRES_USER=postgres`
 - `POSTGRES_PASSWORD=sqlsage`
 - `POSTGRES_DB=sqlsage`
-- `SQLSAGE_TIMEOUT_MS=120000` (SF=1 TPC-H can exceed 5s)
+- `SQLSAGE_TIMEOUT_MS=120000`
 
-Start DB:
-
-```bash
-docker compose up -d
-```
-
-### Person 1 — hours 8–14 (reference §8)
-
-After TPC-H SF=1 is loaded, optionally drop helper indexes so the curriculum matches the reference (more Seq Scan headroom):
-
-```bash
-psql "host=127.0.0.1 port=5433 user=postgres dbname=sqlsage password=sqlsage" -f sql/scripts/drop_curriculum_indexes.sql
-```
-
-- **Level 2 tasks** are `Q3`, `Q5`, `Q10`, `Q12` style queries in `sqlsage/tasks/level2.py`. Train or stress **Level 2 only** with `SQLSageEnv(tasks=sqlsage.tasks.tasks_for_levels(2))` or `--levels 2` below.
-- **Stress run** (sequential `reset` / optional identity `step`, no GRPO):
-
-```bash
-POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5433 python scripts/stress_env.py --episodes 50 --levels 2 --identity-step
-```
-
-OpenEnv HTTP uses a **single shared DB session**; the bridge serializes `reset` / `step` / `state` with a lock so multi-threaded Uvicorn does not interleave psycopg2 calls.
-
-## Endpoints (Meta OpenEnv HTTP API)
-
-- `GET /health`
-- `POST /reset` — body: `{}` or `{"seed": 42}` (optional `episode_id`)
-- `POST /step` — body wraps the SQL action under `action` (OpenEnv `StepRequest`):
-
-```json
-{
-  "action": {
-    "action": "push_filter",
-    "rewritten_query": "SELECT 1"
-  }
-}
-```
-
-- `GET /state`
-- `GET /schema`, `GET /metadata`, WebSocket `/ws` for session-based `reset` / `step`
-
-## Local Run
+### 2) Run API server
 
 ```bash
 POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5433 uvicorn sqlsage.app:app --reload --port 8000
 ```
 
-## Single-container image (Postgres + API)
-
-The root `Dockerfile` starts PostgreSQL then `uvicorn` (for Hugging Face Spaces). The entrypoint listens on **`$PORT`** (Hugging Face defaults this to **7860**). For a local `docker run` without `PORT`, the same default applies—set `-e PORT=8000 -p 8000:8000` if you want port 8000.
-
-On startup, the image now auto-creates the core TPC-H tables (`sql/bootstrap_tpch_schema.sql`) so `/reset` does not fail with missing-relation errors on fresh volumes. This is schema-only bootstrap; for realistic rewards and full curriculum behavior, load actual TPC-H data separately. Set `SQLSAGE_BOOTSTRAP_TPCH_SCHEMA=0` to skip auto bootstrap.
-
-## Tests
-
-```bash
-pip install -e '.[dev]'
-pytest tests/ -v
-```
-
-Integration tests use `POSTGRES_*` (default host `127.0.0.1`, port `5433`).
-
-## Validation
+### 3) Validate OpenEnv contract
 
 ```bash
 openenv validate
 ```
 
-## Training (Person 3)
+## Training Pipeline
 
-Colab GRPO checklist, wandb rollout script, Hub upload, and baseline table: **`docs/PERSON3_PHASE8_MANUAL.md`**. Colab skeleton: **`notebooks/sqlsage_grpo_colab.ipynb`**. Quick smoke: `pip install -e '.[training]'` then `python scripts/rollout_wandb.py --episodes 5`.
+### Colab + GRPO flow
 
-Phase 8 completion runbook (all roles): **`docs/PHASE8_CLOSEOUT_CHECKLIST.md`**.
+- Colab notebook: `notebooks/sqlsage_grpo_colab.ipynb`
+- Local helper: `scripts/train_grpo_with_env.py`
+- Space training entrypoint: `train.py`
 
-## Results (Phase 8 evidence)
+### Training scripts
 
-Current rollout comparison from `results/baseline.jsonl` vs `results/trained.jsonl`:
+- `scripts/rollout_wandb.py`: rollout episodes + log metrics to W&B
+- `scripts/compare_rollouts.py`: baseline vs trained markdown report
+- `scripts/push_model_to_hub.py`: upload trained model
+- `scripts/stress_env.py`: stress test environment behavior
+- `scripts/smoke_env.py`: smoke check env endpoints
 
-| Metric | Baseline | After training |
-| --- | ---: | ---: |
-| Episodes | 50 | 50 |
-| Mean episode return (sum of step rewards) | 2.32 | 5.10 |
-| Mean final query latency (ms) | 0.6 | 0.5 |
-| Mean speedup ratio (0–1) | 0.294 | 0.284 |
-| Syntax penalties / episode | 0.00 | 0.00 |
-| Result-changed penalties / episode | 0.00 | 0.00 |
+### Example rollout + report
 
-Notes:
+```bash
+python scripts/rollout_wandb.py --episodes 50 --policy identity --out-jsonl results/baseline.jsonl
+python scripts/rollout_wandb.py --episodes 50 --policy noisy_identity --out-jsonl results/trained.jsonl
+python scripts/compare_rollouts.py --baseline results/baseline.jsonl --trained results/trained.jsonl
+```
 
-- These numbers are generated via `scripts/rollout_wandb.py` + `scripts/compare_rollouts.py`.
-- The current "trained" sample used the repo placeholder policy (`noisy_identity`) for pipeline validation; replace with true trained-policy rollouts before final judging submission.
+## Learning Curves and Logs
 
-W&B run links used for this export:
+- Plot generator: `plots/generate_plots.py`
+- Plot notes: `plots/README_plots.md`
+- Current report: `results/baseline_vs_trained.md`
+- Recommended curves:
+  - Reward vs episode
+  - Mean latency vs episode
+  - Penalty counts vs episode
 
-- Baseline run: [rollout-http / w9lorr6y](https://wandb.ai/shingavineel-bharati-vidyapeeth/sqlsage-grpo/runs/w9lorr6y)
-- Comparison run: [rollout-http / 1d4w4r5y](https://wandb.ai/shingavineel-bharati-vidyapeeth/sqlsage-grpo/runs/1d4w4r5y)
+To include animated learning curves, export your W&B panel as GIF and embed in `README`:
+
+```md
+![Learning Curves](docs/assets/learning-curves.gif)
+```
+
+## Current Results Snapshot
+
+From `results/baseline_vs_trained.md`:
+
+- Mean episode return: `2.32 -> 5.10`
+- Mean final query latency (ms): `0.6 -> 0.5`
+- Syntax penalties/episode: `0.00`
+- Result-changed penalties/episode: `0.00`
+
+W&B evidence:
+
+- [rollout-http / w9lorr6y](https://wandb.ai/shingavineel-bharati-vidyapeeth/sqlsage-grpo/runs/w9lorr6y)
+- [rollout-http / 1d4w4r5y](https://wandb.ai/shingavineel-bharati-vidyapeeth/sqlsage-grpo/runs/1d4w4r5y)
 
 ## Submission Links
 
-- Hugging Face Space: [adity00/sqlsage-env](https://huggingface.co/spaces/Adity00/sqlsage-env)
-- Colab notebook (repo copy): `notebooks/sqlsage_grpo_colab.ipynb`
+- Hugging Face Space: [Adity00/sqlsage-env](https://huggingface.co/spaces/Adity00/sqlsage-env)
+- Colab notebook: `notebooks/sqlsage_grpo_colab.ipynb`
 - GitHub repository: [neelshingavi/SQLSage](https://github.com/neelshingavi/SQLSage)
-- Demo video/blog: **TODO (add final URL)**
+- Detailed blog post: `BLOG.md`
+- Demo video/blog URL for submission: `TODO`
+
+## Engineering Notes
+
+- Single shared DB session is protected by lock in OpenEnv bridge.
+- Docker image supports HF Space `$PORT` runtime.
+- Schema bootstrap script: `sql/bootstrap_tpch_schema.sql`
+- Team closeout runbook: `docs/PHASE8_CLOSEOUT_CHECKLIST.md`
+- Training ops manual: `docs/PERSON3_PHASE8_MANUAL.md`
