@@ -102,6 +102,22 @@ POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5433 uvicorn sqlsage.app:app --reload --po
 openenv validate
 ```
 
+## Hugging Face Space (deploy)
+
+| What | Command | When |
+|------|---------|------|
+| **Fast (Git)** | `make push-hf` (runs `scripts/push_hf_fast.sh`) or `git push hf-space main` | After `git add` / `commit`; only sends Git deltas. |
+| | `HF_TOKEN=hf_... ./scripts/push_hf_fast.sh` | Same, non-interactive (CI or no saved credentials). |
+| **Full (OpenEnv)** | `openenv push -r Adity00/sqlsage-env .` | First-time or when you need the CLI to bundle assets / set Space options. Heavier and slower. |
+
+**Auth (HTTPS):** run `huggingface-cli login` or `hf auth login`, or use a [token](https://huggingface.co/settings/tokens) as the Git **password** (username: your HF username, or per HF docs e.g. `huggingface`).
+
+**One-time** Git remote (if missing):
+
+`git remote add hf-space https://huggingface.co/spaces/Adity00/sqlsage-env`
+
+Do **not** embed API tokens in the remote URL; use the login flow above.
+
 ## Training Pipeline
 
 ### Colab + GRPO flow
