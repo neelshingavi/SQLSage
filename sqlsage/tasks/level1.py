@@ -1,24 +1,9 @@
-"""Level 1 TPC-H tasks: single-table optimization."""
+"""Level 1 TPC-H task definitions."""
 
-from __future__ import annotations
+from sqlsage.tasks import Task
 
-from dataclasses import dataclass
-
-
-@dataclass(frozen=True)
-class Task:
-    query: str
-    target_ms: float
-    level: int
-    description: str
-
-
-LEVEL1_TASKS = [
-    Task(
-        description="TPC-H Q1 style aggregation with date filter",
-        level=1,
-        target_ms=500.0,
-        query="""
+task1 = Task(
+    query="""
 SELECT
     l_returnflag,
     l_linestatus,
@@ -31,41 +16,46 @@ SELECT
     AVG(l_discount) AS avg_disc,
     COUNT(*) AS count_order
 FROM lineitem
-WHERE l_shipdate <= DATE '1998-12-01' - INTERVAL '90 day'
+WHERE l_shipdate <= DATE '1998-12-01' - INTERVAL '90 days'
 GROUP BY l_returnflag, l_linestatus
-ORDER BY l_returnflag, l_linestatus;
+ORDER BY l_returnflag, l_linestatus
 """.strip(),
-    ),
-    Task(
-        description="TPC-H Q6 style revenue query",
-        level=1,
-        target_ms=500.0,
-        query="""
-SELECT
-    SUM(l_extendedprice * l_discount) AS revenue
+    target_ms=500.0,
+    level=1,
+    description="Full table scan on 6M row lineitem — needs index on l_shipdate",
+)
+
+task2 = Task(
+    query="""
+SELECT SUM(l_extendedprice * l_discount) AS revenue
 FROM lineitem
 WHERE l_shipdate >= DATE '1994-01-01'
-  AND l_shipdate < DATE '1995-01-01'
-  AND l_discount BETWEEN 0.05 AND 0.07
-  AND l_quantity < 24;
+  AND l_shipdate < DATE '1994-01-01' + INTERVAL '1 year'
+  AND l_discount BETWEEN 0.06 - 0.01 AND 0.06 + 0.01
+  AND l_quantity < 24
 """.strip(),
-    ),
-    Task(
-        description="TPC-H Q14 style promotional revenue",
-        level=1,
-        target_ms=500.0,
-        query="""
+    target_ms=500.0,
+    level=1,
+    description="Seq scan with multiple filters on lineitem — filter pushdown",
+)
+
+task3 = Task(
+    query="""
 SELECT
     100.00 * SUM(
-        CASE
-            WHEN p_type LIKE 'PROMO%%' THEN l_extendedprice * (1 - l_discount)
-            ELSE 0
+        CASE WHEN p_type LIKE 'PROMO%'
+             THEN l_extendedprice * (1 - l_discount)
+             ELSE 0
         END
     ) / SUM(l_extendedprice * (1 - l_discount)) AS promo_revenue
-FROM lineitem
-JOIN part ON l_partkey = p_partkey
-WHERE l_shipdate >= DATE '1995-09-01'
-  AND l_shipdate < DATE '1995-10-01';
+FROM lineitem, part
+WHERE l_partkey = p_partkey
+  AND l_shipdate >= DATE '1995-09-01'
+  AND l_shipdate < DATE '1995-09-01' + INTERVAL '1 month'
 """.strip(),
-    ),
-]
+    target_ms=500.0,
+    level=1,
+    description="Implicit cross join — needs explicit JOIN and index on l_shipdate",
+)
+
+LEVEL1_TASKS = [task1, task2, task3]

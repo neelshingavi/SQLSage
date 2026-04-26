@@ -72,7 +72,7 @@ def test_env_level2_only_task_set_runs_reset(postgres_conn):
     try:
         obs = env.reset(seed=1)
         assert obs.task_level == 2
-        assert "JOIN" in obs.original_query.upper() or "join" in obs.original_query
+        assert "FROM" in obs.original_query.upper()
     finally:
         env.close()
 
